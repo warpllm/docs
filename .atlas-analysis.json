@@ -1,0 +1,84 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "warpllm",
+  "projectDescription": "A warp-speed AI gateway SDK — written in Rust, available for Rust, Node.js, and Python — that routes chat completion requests across multiple AI providers with a single, unified interface.",
+  "theme": "luma",
+  "primaryColor": "#5c64f4",
+  "lightColor": "#acb4fc",
+  "darkColor": "#ffffff",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/model-routing",
+              "concepts/providers",
+              "concepts/streaming",
+              "concepts/errors"
+            ]
+          },
+          {
+            "group": "SDK Guides",
+            "pages": [
+              "guides/python",
+              "guides/node",
+              "guides/rust"
+            ]
+          },
+          {
+            "group": "HTTP Gateway",
+            "pages": [
+              "gateway/overview",
+              "gateway/running",
+              "gateway/configuration"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/model-registry",
+              "reference/client-config",
+              "reference/error-codes"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Rust-native core compiled to native binaries for Python and Node.js — minimal overhead latency",
+    "Single unified chat completions API across OpenAI, DeepSeek, Kimi, and OpenRouter",
+    "provider/model routing strings — switching providers is a one-string change",
+    "Streaming chat completions via Server-Sent Events across all SDKs and the HTTP gateway",
+    "OpenAI-compatible HTTP gateway — point any OpenAI SDK at it without changing application code",
+    "Strict model registry — unknown model names are rejected, never silently misrouted",
+    "Configurable request timeout and per-stream read timeout to detect wedged upstreams",
+    "Normalized error taxonomy across all providers — DeepSeek 402s surface as OpenAI-compatible 429s"
+  ],
+  "publicApiSurface": [
+    "WarpLLM (Python/Node) / Client (Rust) — main client class",
+    "client.chat_completions(request) — non-streaming chat completion",
+    "client.chat_completions_stream(request) — streaming chat completion",
+    "ClientConfig { base_url, timeout_secs, stream_read_timeout_secs }",
+    "CreateChatCompletionRequest",
+    "CreateChatCompletionResponse",
+    "CreateChatCompletionStreamResponse",
+    "ChatCompletionStream (Node) / ChatCompletionStream + AsyncChatCompletionStream (Python) / ChatCompletionStream (Rust)",
+    "Model routing strings: openai/*, deepseek/*, kimi/*, openrouter/*",
+    "Error classes: APIError, AuthenticationError, RateLimitError, BadRequestError, InternalServerError, etc.",
+    "HTTP gateway endpoint: POST /v1/chat/completions",
+    "HTTP gateway health: GET /health",
+    "Server flags: --host, --port, --timeout-secs, --stream-read-timeout-secs"
+  ]
+}

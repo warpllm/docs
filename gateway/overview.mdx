@@ -1,0 +1,52 @@
+---
+title: "warpllm HTTP Gateway: Self-Hosted OpenAI-Compatible Proxy"
+sidebarTitle: "Overview"
+description: "The warpllm HTTP gateway is a self-hosted OpenAI-compatible proxy. Point any OpenAI SDK at it and route requests to any supported provider."
+---
+
+The warpllm HTTP gateway is a self-hosted HTTP server that speaks the OpenAI API and routes requests to any provider that warpllm supports. You run the gateway in your own infrastructure, set your provider API keys as environment variables, and then point any existing OpenAI SDK at it by changing a single `base_url` — no other changes to your calling code are required.
+
+<Warning>
+  The HTTP gateway is available on the `main` branch but has **not yet been released as a versioned package**. To use it today, you must build from source. See [Running the Gateway](/gateway/running) for instructions.
+</Warning>
+
+## How authentication works
+
+The gateway authenticates upstream requests using its own provider API keys, which it reads from environment variables at startup. The `Authorization` header your OpenAI SDK sends is accepted (to satisfy SDK clients that require one) but is never forwarded to any upstream provider. You can pass any placeholder string as the `api_key` in your SDK configuration.
+
+## Endpoints
+
+The gateway exposes two routes.
+
+### `POST /v1/chat/completions`
+
+Handles chat completion requests for all supported providers. The `model` field in the request body uses the `provider/model-name` format (for example, `openai/gpt-4o` or `deepseek/deepseek-chat`) to tell the gateway which upstream to reach.
+
+Set `"stream": true` in the request body to receive a Server-Sent Events (SSE) stream. The gateway follows the same streaming protocol as the OpenAI API, including the `data: [DONE]` sentinel at the end of a successful stream.
+
+### `GET /health`
+
+Returns a JSON object confirming the gateway is running:
+
+```json
+{"status": "ok", "version": "0.3.1"}
+```
+
+The `version` field reflects the warpllm library version embedded in the binary.
+
+## Error handling
+
+The gateway normalizes provider errors into OpenAI-compatible HTTP status codes and error response shapes, so any error-handling logic you already have for the OpenAI API works without modification.
+
+For streaming responses, the HTTP status is committed to `200` before any upstream bytes arrive. If the upstream fails mid-stream, the gateway delivers the error as a final SSE event in the OpenAI error envelope format — no `[DONE]` sentinel follows it.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Running the Gateway" icon="play" href="/gateway/running">
+    Build the gateway from source or with Docker and start routing requests.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/gateway/configuration">
+    Learn the CLI flags that control host, port, and timeout behaviour.
+  </Card>
+</CardGroup>

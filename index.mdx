@@ -1,0 +1,92 @@
+---
+title: "warpllm: Unified AI Gateway for Python, Node.js, and Rust"
+sidebarTitle: "Home"
+description: "Route LLM requests across OpenAI, DeepSeek, Kimi, and OpenRouter with one SDK. Rust-native performance for Python, Node.js, and Rust."
+---
+
+warpllm is a high-performance AI gateway SDK that lets you call any supported LLM provider with a single, consistent API. Switch providers by changing a model string — no restructuring required. The core is written in Rust and compiled to native binaries, giving you minimal-overhead latency in Python, Node.js, and Rust applications alike.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="bolt" href="/quickstart">
+    Make your first chat completion in under 5 minutes
+  </Card>
+  <Card title="Installation" icon="package" href="/installation">
+    Install the SDK for Python, Node.js, or Rust
+  </Card>
+  <Card title="Model Routing" icon="arrow-right-arrow-left" href="/concepts/model-routing">
+    Learn how provider/model routing strings work
+  </Card>
+  <Card title="Supported Providers" icon="server" href="/concepts/providers">
+    Browse all supported providers and models
+  </Card>
+</CardGroup>
+
+## What You Can Do
+
+warpllm gives you one interface for all major LLM providers. Set your API keys once, then switch providers by changing a string.
+
+<CardGroup cols={3}>
+  <Card title="Python SDK" icon="python" href="/guides/python">
+    Sync and async clients for Python applications
+  </Card>
+  <Card title="Node.js SDK" icon="node-js" href="/guides/node">
+    TypeScript-first client for Node applications
+  </Card>
+  <Card title="Rust SDK" icon="gear" href="/guides/rust">
+    Async Rust client with full type safety
+  </Card>
+</CardGroup>
+
+## Five-Line Quickstart
+
+Install the package for your language, export your API key, and make a call:
+
+<CodeGroup>
+
+```python Python
+from warpllm import WarpLLM
+
+client = WarpLLM()
+completion = client.chat_completions({
+    "model": "openai/gpt-5-nano",
+    "messages": [{"role": "user", "content": "Hello!"}],
+})
+print(completion["choices"][0]["message"]["content"])
+```
+
+```typescript Node.js
+import { WarpLLM } from '@warpllm/warpllm'
+
+const client = new WarpLLM()
+const completion = await client.chatCompletions({
+  model: 'openai/gpt-5-nano',
+  messages: [{ role: 'user', content: 'Hello!' }],
+})
+console.log(completion.choices[0].message.content)
+```
+
+```rust Rust
+use warpllm::{ChatCompletionRequestMessage, Client, ClientConfig, CreateChatCompletionRequest};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Client::new(ClientConfig::default())?;
+    let completion = client.chat_completions(CreateChatCompletionRequest {
+        model: "openai/gpt-5-nano".to_string(),
+        messages: vec![ChatCompletionRequestMessage::new("user", "Hello!")],
+        ..Default::default()
+    }).await?;
+    println!("{}", completion.choices[0].message.content.as_deref().unwrap_or_default());
+    Ok(())
+}
+```
+
+</CodeGroup>
+
+## HTTP Gateway
+
+warpllm also ships an OpenAI-compatible HTTP gateway. Point any existing OpenAI SDK at it — no code changes required in the calling application.
+
+<Card title="HTTP Gateway" icon="network-wired" href="/gateway/overview">
+  Run a self-hosted proxy that speaks the OpenAI API and routes to any supported provider
+</Card>

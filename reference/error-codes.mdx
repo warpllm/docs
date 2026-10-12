@@ -1,0 +1,151 @@
+---
+title: "warpllm Error Codes and Classes Reference"
+sidebarTitle: "Error Codes"
+description: "Complete reference of all warpllm error codes, error classes across Python and Node.js, and their HTTP status codes and full remedies."
+---
+
+warpllm maps every failure — whether from its own validation logic or from a provider's API — onto OpenAI-compatible error classes and HTTP status codes. Provider-specific formats are normalized before they reach you: DeepSeek's HTTP 402 for quota exhaustion becomes a 429 `insufficient_quota`, for example, so your error-handling code does not need to branch on which provider answered the request. Only failures that warpllm could not classify are forwarded verbatim with the provider's own status.
+
+---
+
+## Error Classes (Python and Node.js)
+
+These are the exception classes you catch in Python and Node.js. They match the classes the official OpenAI SDK raises, so any existing error-handling code you have for OpenAI transfers directly.
+
+| Class | HTTP Status | Error Code | Remedy |
+|---|---|---|---|
+| `AuthenticationError` | 401 | `invalid_api_key` | Set or fix the provider API key environment variable named in the error message |
+| `BadRequestError` | 400 | `invalid_request` | Check the model string and request parameters; the error message identifies what was wrong |
+| `NotFoundError` | 404 | `model_not_found` | Verify the model string is in the registry and that your provider account has access to it |
+| `PermissionDeniedError` | 403 | — | Your API key is valid but not entitled to this model; request access from the provider |
+| `ConflictError` | 409 | — | The request conflicted with the current state; check the error message for details |
+| `UnprocessableEntityError` | 422 | — | The request was structurally invalid; check the request body shape |
+| `RateLimitError` | 429 | `rate_limit_exceeded` | Back off and retry; respect any `Retry-After` header in the response |
+| `RateLimitError` (quota) | 429 | `insufficient_quota` | Your provider account is out of credit — topping up is the only fix; waiting does not help |
+| `InternalServerError` | 500 | `internal_error` | Internal error in warpllm or the provider; retry the request or contact support |
+| `APIConnectionError` | — | `connection_error` | Network error before reaching the provider; check connectivity and retry |
+
+<Note>
+  `RateLimitError` with `insufficient_quota` and `RateLimitError` with `rate_limit_exceeded` are both HTTP 429, but they require completely different remedies. Check the `code` field on the error object to tell them apart.
+</Note>
+
+---
+
+## warpllm Error Codes (Rust)
+
+In Rust, call `err.code()` on any `warpllm::Error` to get the stable machine-readable slug. These slugs also cross the FFI boundary as the `code` field in the JSON error envelope that the Python and Node.js bindings receive.
+
+| Code | Meaning |
+|---|---|
+| `invalid_request` | warpllm rejected the call before any network request — unknown model string or invalid input |
+| `missing_api_key` | No API key is set for the provider this model requires |
+| `connection_error` | Network error before reaching the provider; the provider was never contacted |
+| `decode_error` | The provider responded with a success status but the body was unreadable |
+| `stream_truncated` | The provider closed the stream before sending the `[DONE]` completion sentinel |
+| `stream_stalled` | The stream exceeded `stream_read_timeout_secs` without sending any bytes |
+| `not_implemented` | The requested feature is not yet implemented in warpllm |
+| `internal_error` | Internal error in warpllm; nothing about the request was wrong |
+| `rate_limited` | The provider returned a rate limit error; back off and retry |
+| `quota_exceeded` | The provider account is out of credit; waiting does not fix this |
+| `overloaded` | The provider is shedding load (HTTP 503 or Anthropic-style 529); retry after a pause |
+| `provider_server_error` | An unattributed 5xx from the provider |
+| `context_length_exceeded` | The prompt exceeds the model's context window |
+| `content_filter` | The provider refused the request on safety grounds |
+| `authentication` | The provider rejected the API credential; distinct from `missing_api_key`, which fires before any request goes out |
+| `permission_denied` | The credential is valid but not entitled to this model |
+| `model_not_found` | The provider does not serve this model; distinct from `invalid_request`, which fires before any request goes out |
+| `provider_invalid_request` | The provider rejected the request as malformed or containing an unsupported parameter |
+| `provider_unknown` | The provider failed but the cause could not be identified; read the attached `ProviderError` for details |
+
+<Tip>
+  `invalid_request` (code `invalid_request`) and `provider_invalid_request` (code `provider_invalid_request`) both mean "bad request" but require different fixes. `invalid_request` means you need to fix your call to warpllm — wrong model string, missing field. `provider_invalid_request` means the call reached the provider and the provider rejected it — try a different model or parameter combination.
+</Tip>
+
+---
+
+## Error Origin (Rust)
+
+Every `warpllm::Error` carries an origin that tells you whether warpllm itself rejected the call or the provider answered and returned a failure. Call `err.origin()` to retrieve it.
+
+<ResponseField name="Origin::Gateway" type="enum variant">
+  warpllm rejected the call before making any network request, or the request was made but the failure is warpllm's own (network error, unreadable response body, stream truncation). The provider either was never reached or was never asked. Retrying the identical call without making a change achieves nothing.
+
+  Variants with this origin: `InvalidInput`, `InvalidModel`, `MissingApiKey`, `Network`, `Decode`, `StreamTruncated`, `StreamStalled`, `NotImplemented`, `Internal`.
+</ResponseField>
+
+<ResponseField name="Origin::Provider" type="enum variant">
+  The provider answered and its answer was a failure. A `ProviderError` is attached with the raw status, message, and any request ID the provider included. Call `err.provider_error()` to access it — this method returns `Some` exactly when `origin()` is `Origin::Provider`.
+
+  Variants with this origin: `RateLimited`, `QuotaExceeded`, `Overloaded`, `ServerError`, `ContextLengthExceeded`, `ContentFilter`, `Authentication`, `PermissionDenied`, `ModelNotFound`, `InvalidRequest`, `Unknown`.
+</ResponseField>
+
+Use the origin to decide whether to retry or change something:
+
+```rust Rust
+use warpllm::{Error, Origin};
+
+match err.origin() {
+    Origin::Gateway => eprintln!("Client-side issue: {err}"),
+    Origin::Provider => {
+        let pe = err.provider_error().unwrap();
+        eprintln!(
+            "Provider {} returned HTTP {}: {}",
+            pe.provider, pe.status, pe.message
+        );
+    }
+}
+```
+
+---
+
+## Troubleshooting
+
+<Accordion title="I'm getting AuthenticationError">
+  warpllm reads API keys from environment variables at client construction time. Check that the variable for the provider you're targeting is set and contains the correct value:
+
+  - **OpenAI:** `OPENAI_API_KEY`
+  - **DeepSeek:** `DEEPSEEK_API_KEY`
+  - **Kimi:** `MOONSHOT_API_KEY`
+  - **OpenRouter:** `OPENROUTER_API_KEY`
+
+  The error message names the environment variable it tried to read and could not find a valid key in. If you constructed the client before setting the variable, reconstruct it — keys are read once at construction, not on every request.
+</Accordion>
+
+<Accordion title="I'm getting an invalid_request error for my model string">
+  warpllm requires the full `provider/model` routing string, including the provider prefix. A bare model name like `gpt-5.6` is not valid — it must be `openai/gpt-5.6`. Check the [Model Registry](/reference/model-registry) for the exact routing string to use.
+
+  warpllm has no wildcard or fuzzy matching. The string must match a registry entry exactly — including case and any slashes in the model segment.
+</Accordion>
+
+<Accordion title="My stream is raising StreamTruncated / stream_truncated">
+  The provider closed the connection before sending the `[DONE]` sentinel that marks a complete response. This means the reply you received is incomplete. Retry the request — the cause is usually transient on the provider's side.
+
+  If the error recurs consistently for the same prompt, consider routing through a different model or provider. `StreamTruncated` is always the provider ending the connection early; there is nothing wrong with your request.
+</Accordion>
+
+<Accordion title="My stream is raising StreamStalled / stream_stalled">
+  The stream read timeout fired because the stream went the configured number of seconds without sending any bytes. There are two possible causes:
+
+  1. **The timeout is set too low for the model you're using.** Reasoning models can pause for minutes before emitting their first token. Increase `stream_read_timeout` / `streamReadTimeout` / `stream_read_timeout_secs` to a value above the longest pause you expect. Note that several providers send keepalive `:` comments during a long think, and those bytes reset the timer.
+
+  2. **The provider is genuinely wedged.** If you've set a generous timeout and the error still fires, the provider's connection is stuck. Retry the request or check the provider's status page.
+
+  If you have not set the stream read timeout, this error cannot occur — the default is unbounded.
+</Accordion>
+
+---
+
+## Error Normalization
+
+warpllm normalizes provider-specific failure formats into their OpenAI equivalents so your error handling code stays provider-agnostic. The key normalizations are:
+
+<CardGroup cols={2}>
+  <Card title="DeepSeek 402 → 429 insufficient_quota" icon="credit-card">
+    DeepSeek reports an exhausted account balance as HTTP 402. warpllm maps this to a 429 `insufficient_quota` response — the same code the OpenAI SDK uses for the same situation — so quota exhaustion is handled identically regardless of provider.
+  </Card>
+  <Card title="Anthropic 529 → overloaded" icon="server">
+    Anthropic uses HTTP 529 for overload shedding, a non-standard status code. warpllm maps this to the `overloaded` code alongside standard 503 responses, so you handle provider overload with a single branch.
+  </Card>
+</CardGroup>
+
+Failures that warpllm could not classify keep the provider's own status and are surfaced as `provider_unknown` with the raw body attached so you can inspect and handle them yourself.

@@ -1,0 +1,181 @@
+---
+title: "Get Started with the warpllm SDK in Under 5 Minutes"
+sidebarTitle: "Quick Start"
+description: "Install warpllm for Python, Node.js, or Rust, set your API key, and send your first chat completion to any LLM provider in under 5 minutes."
+---
+
+warpllm gives you a single `chat_completions` call that routes to any supported LLM provider. This guide walks you through installing the package, exporting your API key, making your first request, and reading the response — the whole thing takes under five minutes regardless of whether you're working in Python, Node.js, or Rust.
+
+<Steps>
+
+  <Step title="Install the package">
+
+    Choose the package manager for your language. All three packages are pre-compiled Rust binaries — no build tools required.
+
+    <CodeGroup>
+
+    ```bash pip
+    pip install warpllm
+    ```
+
+    ```bash npm
+    npm install @warpllm/warpllm
+    ```
+
+    ```bash cargo
+    cargo add warpllm
+    ```
+
+    </CodeGroup>
+
+    <Info>
+      Rust's `chat_completions` method is `async` and warpllm ships no runtime. Add tokio separately:
+
+      ```bash
+      cargo add tokio --features macros,rt-multi-thread
+      ```
+    </Info>
+
+  </Step>
+
+  <Step title="Set your API key">
+
+    warpllm reads API keys from your environment when the client is built. Export the key for the provider you want to use before running your application.
+
+    ```bash
+    export OPENAI_API_KEY=sk-...
+    ```
+
+    <Note>
+      warpllm reads API keys from the environment at client construction time. You only need the key for the provider you're calling — `OPENAI_API_KEY` for OpenAI, `DEEPSEEK_API_KEY` for DeepSeek, `MOONSHOT_API_KEY` for Kimi, `OPENROUTER_API_KEY` for OpenRouter.
+    </Note>
+
+  </Step>
+
+  <Step title="Make your first call">
+
+    Call `chat_completions` with a `provider/model` string and a messages array. The `provider/` prefix tells warpllm which provider to route to — the whole string is matched against the built-in registry, so a typo is an error rather than an unexpected API call.
+
+    <CodeGroup>
+
+    ```python Python
+    from warpllm import WarpLLM
+
+    client = WarpLLM()
+    completion = client.chat_completions({
+        "model": "openai/gpt-5-nano",
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Hello!"},
+        ],
+    })
+    print(completion["choices"][0]["message"]["content"])
+    ```
+
+    ```ts Node.js
+    import { WarpLLM } from '@warpllm/warpllm'
+
+    const client = new WarpLLM()
+    const completion = await client.chatCompletions({
+      model: 'openai/gpt-5-nano',
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant.' },
+        { role: 'user', content: 'Hello!' },
+      ],
+    })
+    console.log(completion.choices[0].message.content)
+    ```
+
+    ```rust Rust
+    use warpllm::{ChatCompletionRequestMessage, Client, ClientConfig, CreateChatCompletionRequest};
+
+    #[tokio::main]
+    async fn main() -> Result<(), Box<dyn std::error::Error>> {
+        let client = Client::new(ClientConfig::default())?;
+        let completion = client
+            .chat_completions(CreateChatCompletionRequest {
+                model: "openai/gpt-5-nano".to_string(),
+                messages: vec![
+                    ChatCompletionRequestMessage::new("system", "You are a helpful assistant."),
+                    ChatCompletionRequestMessage::new("user", "Hello!"),
+                ],
+                ..Default::default()
+            })
+            .await?;
+        let content = completion.choices[0].message.content.as_deref();
+        println!("{}", content.unwrap_or_default());
+        Ok(())
+    }
+    ```
+
+    </CodeGroup>
+
+  </Step>
+
+  <Step title="Read the response">
+
+    The response follows the OpenAI chat completion shape. The model's reply is in `choices[0].message.content`. In Python the response is a plain dictionary; in Node.js it is a typed object; in Rust it is a `CreateChatCompletionResponse` struct.
+
+    <Tabs>
+
+      <Tab title="Python">
+        ```python
+        # Access the text of the first (and usually only) choice
+        text = completion["choices"][0]["message"]["content"]
+
+        # The full response also includes token usage
+        usage = completion["usage"]
+        print(f"Tokens used: {usage['total_tokens']}")
+        ```
+      </Tab>
+
+      <Tab title="Node.js">
+        ```ts
+        // Access the text of the first choice
+        const text = completion.choices[0].message.content
+
+        // The full response also includes token usage
+        const usage = completion.usage
+        console.log(`Tokens used: ${usage?.total_tokens}`)
+        ```
+      </Tab>
+
+      <Tab title="Rust">
+        ```rust
+        // content is Option<Option<String>> — absent key vs. explicit null are distinct
+        let text = completion.choices[0].message.content.as_deref();
+        println!("{}", text.unwrap_or_default());
+
+        // Token usage
+        if let Some(usage) = &completion.usage {
+            println!("Tokens used: {}", usage.total_tokens);
+        }
+        ```
+      </Tab>
+
+    </Tabs>
+
+    <Tip>
+      To switch providers, change the model string and export the matching API key. Nothing else in your code changes — `openai/gpt-5-nano` becomes `deepseek/deepseek-v4-flash`, `kimi/kimi-k3`, or `openrouter/anthropic/claude-sonnet-4` and warpllm handles the rest.
+    </Tip>
+
+  </Step>
+
+</Steps>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK Guide" icon="python" href="/guides/python">
+    Sync and async clients, streaming, error handling, and type annotations for Python.
+  </Card>
+  <Card title="Node.js SDK Guide" icon="node-js" href="/guides/node">
+    TypeScript types, async iteration for streams, and Node.js-specific patterns.
+  </Card>
+  <Card title="Rust SDK Guide" icon="rust" href="/guides/rust">
+    The native Rust crate, async patterns with tokio, streaming with `chat_completions_stream`, and error taxonomy.
+  </Card>
+  <Card title="Streaming" icon="wave-sine" href="/concepts/streaming">
+    Stream chat completions token-by-token from every provider using the same model string.
+  </Card>
+</CardGroup>

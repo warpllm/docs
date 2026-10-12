@@ -1,0 +1,160 @@
+---
+title: "Install warpllm for Python, Node.js, or Rust Projects"
+sidebarTitle: "Installation"
+description: "Install warpllm via pip, npm, or cargo. Pre-compiled Rust binaries ship with every package — no build toolchain or compilation step required."
+---
+
+warpllm ships as three packages — one for each supported language — all built from the same Rust core and released together under the same version number. Every package includes pre-compiled native binaries for the major target platforms, so you install and import without a build step. This page covers installation requirements and commands for Python, Node.js, and Rust.
+
+<Note>
+  All three packages share the same version number and are released together. A changelog entry applies to all three unless it explicitly says otherwise. The current version is **0.3.1**.
+</Note>
+
+## Python
+
+Install `warpllm` from PyPI using pip or uv. Python 3.10 or later is required.
+
+<CodeGroup>
+
+```bash pip
+pip install warpllm
+```
+
+```bash uv
+uv add warpllm
+```
+
+</CodeGroup>
+
+The package bundles pre-compiled `.so` / `.pyd` / `.dylib` extension modules for each platform. There is no Rust toolchain requirement and no compilation at install time — pip or uv download the correct binary wheel for your OS and Python version automatically.
+
+**What you get:**
+
+- `WarpLLM` — synchronous client
+- `AsyncWarpLLM` — asyncio-native client
+- `chat_completions_stream` — explicit streaming entrypoint for type checkers
+- Full `CreateChatCompletionResponse` type, usable as a plain `dict`
+
+<Tip>
+  Store API keys in your shell profile or a `.env` file — never hard-code them in source code. warpllm reads each provider's key from the environment at the moment you construct a client, so `os.environ` updates before that point are picked up automatically.
+</Tip>
+
+## Node.js
+
+Install `@warpllm/warpllm` from npm. Node.js 20 or later is required.
+
+<CodeGroup>
+
+```bash npm
+npm install @warpllm/warpllm
+```
+
+```bash yarn
+yarn add @warpllm/warpllm
+```
+
+```bash pnpm
+pnpm add @warpllm/warpllm
+```
+
+</CodeGroup>
+
+The package is a NAPI-RS native addon. Pre-compiled binaries are bundled for macOS (Apple Silicon and x86-64), Windows (x86-64 and ARM64), and Linux (x86-64 and ARM64, both glibc and musl). The correct binary is selected automatically at install time — no build tools required.
+
+**What you get:**
+
+- `WarpLLM` class with `chatCompletions` method
+- Full TypeScript type definitions included (`.d.ts` files ship with the package — no separate `@types/` install needed)
+- `async`/`await` and `for await...of` streaming support
+
+<Warning>
+  The package name is `@warpllm/warpllm` (scoped). Installing the unscoped `warpllm` package from npm will give you a different, unrelated package.
+</Warning>
+
+## Rust
+
+Add the `warpllm` crate from crates.io using cargo. Rust 1.85 or later is required (set in `rust-toolchain.toml` in the repository).
+
+```bash
+cargo add warpllm
+```
+
+The `chat_completions` method is `async` and warpllm ships no async runtime. Add tokio with the features the `#[tokio::main]` macro needs:
+
+```bash
+cargo add tokio --features macros,rt-multi-thread
+```
+
+Your `Cargo.toml` will contain entries like:
+
+```toml
+[dependencies]
+warpllm = "0.3.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+**What you get:**
+
+- `Client` — the async gateway client
+- `ClientConfig` — construction-time configuration (API keys, base URLs, timeouts)
+- `CreateChatCompletionRequest` / `CreateChatCompletionResponse` — the wire types
+- `ChatCompletionRequestMessage` — with a `new(role, content)` constructor
+- `ChatCompletionStream` — returned by `chat_completions_stream` for token-by-token streaming
+- Full error taxonomy via `warpllm::Error` with `origin()` and `code()` for stable error slugs
+
+<Tip>
+  Store API keys in your shell profile or a `.env` file — never hard-code them in source code. Because warpllm resolves API keys at client construction time, a key rotated after a long-running process starts requires a new `Client` to take effect.
+</Tip>
+
+## Verifying your installation
+
+After installing, make a quick smoke test by constructing a client. If the key for at least one provider is in your environment, the client builds successfully. If no keys are present, construction succeeds but every request is rejected before hitting the network.
+
+<Tabs>
+
+  <Tab title="Python">
+    ```python
+    from warpllm import WarpLLM
+    client = WarpLLM()
+    print("warpllm client ready")
+    ```
+  </Tab>
+
+  <Tab title="Node.js">
+    ```ts
+    import { WarpLLM } from '@warpllm/warpllm'
+    const client = new WarpLLM()
+    console.log('warpllm client ready')
+    ```
+  </Tab>
+
+  <Tab title="Rust">
+    ```rust
+    use warpllm::{Client, ClientConfig};
+
+    fn main() -> Result<(), Box<dyn std::error::Error>> {
+        let _client = Client::new(ClientConfig::default())?;
+        println!("warpllm client ready");
+        Ok(())
+    }
+    ```
+  </Tab>
+
+</Tabs>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="play" href="/quickstart">
+    Make your first chat completion in under 5 minutes.
+  </Card>
+  <Card title="Python SDK Guide" icon="python" href="/guides/python">
+    Detailed Python usage: sync and async clients, streaming, and error handling.
+  </Card>
+  <Card title="Node.js SDK Guide" icon="node-js" href="/guides/node">
+    Detailed Node.js usage: TypeScript types, streaming, and common patterns.
+  </Card>
+  <Card title="Rust SDK Guide" icon="rust" href="/guides/rust">
+    Detailed Rust usage: the async client, streaming, and the error taxonomy.
+  </Card>
+</CardGroup>

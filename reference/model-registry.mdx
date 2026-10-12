@@ -1,0 +1,116 @@
+---
+title: "Model Registry Reference: All Supported Models"
+sidebarTitle: "Model Registry"
+description: "Complete reference of all models in the warpllm registry, organized by provider with context windows, output limits, and concurrency caps."
+---
+
+The warpllm registry is the single source of truth for every model you can route to. If a model string is not listed here, warpllm rejects it immediately at call time — there is no fallback, no guess, and no silent misrouting. Use the routing strings in the tables below exactly as shown, including the `provider/` prefix.
+
+<Note>
+  Models not in this registry are rejected at the point of the call, never silently misrouted. An unknown model string produces an `invalid_request` error before any network request goes out.
+</Note>
+
+All models support both `openai_compat_chat_completions` (non-streaming, one request → one complete reply) and `openai_compat_chat_completions_stream` (streaming via server-sent events). The `model` field in your request body is the routing string shown in the **Model** column.
+
+---
+
+## OpenAI
+
+Set `OPENAI_API_KEY` in your environment before routing to any `openai/` model. warpllm reads the key at client construction time.
+
+| Model | Context Window | Max Output |
+|---|---|---|
+| `openai/gpt-4.1` | 1,047,576 | 32,768 |
+| `openai/gpt-4.1-mini` | 1,047,576 | 32,768 |
+| `openai/gpt-4o` | 128,000 | 16,384 |
+| `openai/gpt-4o-mini` | 128,000 | 16,384 |
+| `openai/gpt-5` | 400,000 | 128,000 |
+| `openai/gpt-5-mini` | 400,000 | 128,000 |
+| `openai/gpt-5-nano` | 400,000 | 128,000 |
+| `openai/gpt-5.1` | 400,000 | 128,000 |
+| `openai/gpt-5.2` | 400,000 | 128,000 |
+| `openai/gpt-5.4` | 1,050,000 | 128,000 |
+| `openai/gpt-5.4-mini` | 400,000 | 128,000 |
+| `openai/gpt-5.4-nano` | 400,000 | 128,000 |
+| `openai/gpt-5.5` | 1,050,000 | 128,000 |
+| `openai/gpt-5.6` | 1,050,000 | 128,000 |
+| `openai/gpt-5.6-luna` | 1,050,000 | 128,000 |
+| `openai/gpt-5.6-sol` | 1,050,000 | 128,000 |
+| `openai/gpt-5.6-terra` | 1,050,000 | 128,000 |
+| `openai/o3` | 200,000 | 100,000 |
+
+<Tip>
+  `openai/gpt-5.6` is OpenAI's alias for `openai/gpt-5.6-sol` — both route to the same model with the same limits. Prefer `gpt-5.6-sol` when you want the name to be unambiguous in logs.
+</Tip>
+
+---
+
+## DeepSeek
+
+Set `DEEPSEEK_API_KEY` in your environment before routing to any `deepseek/` model. The two V4 models share the same context window and output ceiling but have different concurrency caps, which are per-account limits enforced by DeepSeek.
+
+| Model | Context Window | Max Output | Max Concurrent |
+|---|---|---|---|
+| `deepseek/deepseek-v4-flash` | 1,000,000 | 384,000 | 2,500 |
+| `deepseek/deepseek-v4-pro` | 1,000,000 | 384,000 | 500 |
+
+<Info>
+  DeepSeek reports quota exhaustion as HTTP 402. warpllm normalizes this to a 429 `insufficient_quota` response so your error-handling code does not need to know which provider answered the request.
+</Info>
+
+---
+
+## Kimi
+
+Set `MOONSHOT_API_KEY` in your environment before routing to any `kimi/` model. Kimi's platform is branded Kimi while the API host retains the Moonshot name — the environment variable name reflects the host.
+
+Kimi does not publish a per-model output ceiling. The `max_completion_tokens` request parameter controls how many tokens you ask for, with a default of 32,768. For `kimi/kimi-k3`, the parameter accepts values up to 1,048,576.
+
+| Model | Context Window |
+|---|---|
+| `kimi/kimi-k2.6` | 262,144 |
+| `kimi/kimi-k2.7-code` | 262,144 |
+| `kimi/kimi-k2.7-code-highspeed` | 262,144 |
+| `kimi/kimi-k3` | 1,048,576 |
+
+<Tip>
+  `kimi/kimi-k2.7-code` and `kimi/kimi-k2.7-code-highspeed` share the same context window and limits — they differ only in throughput. Use the `-highspeed` variant when latency matters more than cost.
+</Tip>
+
+---
+
+## OpenRouter
+
+Set `OPENROUTER_API_KEY` in your environment before routing to any `openrouter/` model. OpenRouter is an aggregator: each slug may fan out across multiple backend providers, so the limits recorded here reflect the **narrowest** any single endpoint behind that slug offers — a figure you can always rely on regardless of which backend OpenRouter selects.
+
+| Model | Context Window | Max Output | Notes |
+|---|---|---|---|
+| `openrouter/anthropic/claude-opus-4` | 200,000 | 32,000 | |
+| `openrouter/anthropic/claude-sonnet-4` | 200,000 | 64,000 | Vertex endpoints serve 1M context; Bedrock endpoints 200K — 200K is recorded as the safe floor |
+| `openrouter/auto` | — | — | OpenRouter selects the model per request; limits depend on whichever backend it chooses |
+| `openrouter/google/gemini-2.5-pro` | 1,048,576 | 65,536 | |
+| `openrouter/moonshotai/kimi-k2.6` | 256,000 | — | Max output omitted: endpoints span 16,384–262,144 |
+| `openrouter/moonshotai/kimi-k2.7-code` | 256,000 | — | Max output omitted: endpoints span 16,384–262,144 |
+| `openrouter/moonshotai/kimi-k3` | 974,842 | — | Max output omitted: endpoints span 16,384–1,048,576 |
+| `openrouter/openai/gpt-5.6` | 1,050,000 | 128,000 | Routes to gpt-5.6-sol via OpenRouter |
+| `openrouter/~deepseek/deepseek-v4-flash-latest` | 1,048,576 | — | Always the latest V4 Flash revision; max output omitted because revisions disagree |
+
+<Warning>
+  `openrouter/auto` lets OpenRouter pick any model it deems appropriate for your prompt. You get no guarantee on which model answers, which context window applies, or which provider is billed. Use a specific slug in any production context where predictable behavior matters.
+</Warning>
+
+---
+
+## Capability Summary
+
+<Accordion title="Why are some max output values missing?">
+  warpllm records only limits that every possible backend behind a routing string agrees on. For OpenRouter slugs that fan out across many endpoints, the output ceiling can vary widely — in some cases by a factor of sixteen across different backends. Recording any single figure would promise a limit that many routed requests would not actually get. A missing value means "no guarantee; check what the backend you land on supports."
+</Accordion>
+
+<Accordion title="How does warpllm handle deprecated models?">
+  warpllm's registry does not auto-remove models on a deprecation date. An entry keeps resolving until a deliberate edit removes it. If you route to a model whose provider has discontinued it, the provider returns an error and warpllm surfaces it as a `model_not_found` or `provider_invalid_request` error. Watch your provider's deprecation page, not this registry, for upcoming removals.
+</Accordion>
+
+<Accordion title="Can I add a model that isn't in the registry?">
+  No. The registry is exhaustive by design — there is no wildcard or catch-all route. Adding a model requires an edit to the registry source and a passing test suite run. This is intentional: warpllm can only guarantee correct routing, timeout behavior, and error normalization for models it knows about.
+</Accordion>

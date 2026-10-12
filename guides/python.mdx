@@ -1,0 +1,239 @@
+---
+title: "warpllm Python SDK: Chat Completions and Streaming"
+sidebarTitle: "Python"
+description: "Use the warpllm Python SDK to send chat completions, stream responses, and handle errors. Supports both synchronous and async clients."
+---
+
+The warpllm Python SDK gives you a thin, Rust-backed client for OpenAI-compatible chat completions. You address any supported provider with a `provider/model` string — for example `"openai/gpt-5-nano"` or `"deepseek/deepseek-v4-flash"` — and warpllm routes the request, normalizes errors, and streams chunks back to you without any extra configuration.
+
+## Installation
+
+Install the package from PyPI using your preferred package manager.
+
+<CodeGroup>
+```bash pip
+pip install warpllm
+```
+```bash uv
+uv add warpllm
+```
+</CodeGroup>
+
+## Authentication
+
+warpllm reads API keys from environment variables. You only need to export a key for the provider you actually use — unused variables are silently ignored at client construction time.
+
+```bash
+export OPENAI_API_KEY=sk-...
+export DEEPSEEK_API_KEY=sk-...
+export MOONSHOT_API_KEY=sk-...
+export OPENROUTER_API_KEY=sk-...
+```
+
+<Note>
+  warpllm captures the environment **once**, when you construct the client. Changes to environment variables after that point are not picked up — restart the process or reconstruct the client to use a new key.
+</Note>
+
+## Synchronous Client
+
+`WarpLLM` is a fully synchronous client backed by a Rust HTTP connection pool. Construct it once and reuse it across requests.
+
+### Constructor Options
+
+<ParamField path="base_url" type="str | None" optional>
+  Override the provider's default API base URL. Useful for proxies, local test servers, or compatible third-party endpoints.
+</ParamField>
+
+<ParamField path="timeout" type="int | None" optional>
+  Total request timeout in seconds. Defaults to **600** to match the OpenAI SDK. This is a hard deadline for the entire round-trip — it does not distinguish a slow stream from a wedged one.
+</ParamField>
+
+<ParamField path="stream_read_timeout" type="int | None" optional>
+  Maximum seconds a stream may go without receiving a single byte before warpllm gives up. Unset by default (no gap limit). Resets on every byte, so it bounds the **gap** rather than the total duration. Set this above the slowest time-to-first-token you expect from your model — many reasoning models think in silence for several seconds before emitting a token.
+</ParamField>
+
+### Non-Streaming Request
+
+<Steps>
+  <Step title="Import and construct the client">
+    ```python
+    from warpllm import WarpLLM
+
+    client = WarpLLM()
+    ```
+  </Step>
+  <Step title="Call chat_completions">
+    Pass a plain dict that mirrors the OpenAI chat completions request body. warpllm forwards every field it doesn't model, so provider-specific parameters pass through without any special handling.
+
+    ```python
+    completion = client.chat_completions({
+        "model": "openai/gpt-5-nano",
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Hello!"},
+        ],
+    })
+    print(completion["choices"][0]["message"]["content"])
+    ```
+  </Step>
+</Steps>
+
+### Streaming Request
+
+Add `"stream": True` to the request dict to receive a `ChatCompletionStream` you iterate synchronously.
+
+```python
+stream = client.chat_completions({
+    "model": "openai/gpt-5-nano",
+    "messages": [{"role": "user", "content": "Tell me a story."}],
+    "stream": True,
+})
+for chunk in stream:
+    print(chunk["choices"][0]["delta"].get("content", ""), end="", flush=True)
+```
+
+<Note>
+  For unambiguous static typing, call `chat_completions_stream()` directly instead of passing `"stream": True`. Both methods do the same thing at runtime — `chat_completions_stream` is the form type checkers can verify precisely.
+
+  ```python
+  stream = client.chat_completions_stream({
+      "model": "openai/gpt-5-nano",
+      "messages": [{"role": "user", "content": "Tell me a story."}],
+  })
+  for chunk in stream:
+      print(chunk["choices"][0]["delta"].get("content", ""), end="", flush=True)
+  ```
+
+  The `stream` key is injected automatically by `chat_completions_stream` — you do not need to include it in the dict.
+</Note>
+
+## Async Client
+
+`AsyncWarpLLM` exposes the same interface under `async`/`await`. It accepts identical constructor options to `WarpLLM`.
+
+<Steps>
+  <Step title="Import AsyncWarpLLM">
+    ```python
+    from warpllm import AsyncWarpLLM
+    ```
+  </Step>
+  <Step title="Await a non-streaming completion">
+    ```python
+    async def main():
+        client = AsyncWarpLLM()
+        completion = await client.chat_completions({
+            "model": "openai/gpt-5-nano",
+            "messages": [{"role": "user", "content": "Hello!"}],
+        })
+        print(completion["choices"][0]["message"]["content"])
+    ```
+  </Step>
+  <Step title="Stream with async for">
+    Pass `"stream": True` and iterate with `async for`. The method returns an `AsyncChatCompletionStream`.
+
+    ```python
+    async for chunk in await client.chat_completions({
+        "model": "openai/gpt-5-nano",
+        "messages": [{"role": "user", "content": "Tell me a story."}],
+        "stream": True,
+    }):
+        print(chunk["choices"][0]["delta"].get("content", ""), end="", flush=True)
+    ```
+
+    Or call `chat_completions_stream` directly for precise annotation:
+
+    ```python
+    stream = await client.chat_completions_stream({
+        "model": "openai/gpt-5-nano",
+        "messages": [{"role": "user", "content": "Tell me a story."}],
+    })
+    async for chunk in stream:
+        print(chunk["choices"][0]["delta"].get("content", ""), end="", flush=True)
+    ```
+  </Step>
+</Steps>
+
+## Error Handling
+
+warpllm normalizes provider failures into the same exception hierarchy the official OpenAI SDK raises. A DeepSeek 402 "Insufficient Balance" arrives as `RateLimitError` with `code == "insufficient_quota"` — you handle billing failures the same way regardless of which provider served the request.
+
+```python
+from warpllm import WarpLLM, AuthenticationError, RateLimitError, APIConnectionError
+
+client = WarpLLM()
+try:
+    completion = client.chat_completions({
+        "model": "openai/gpt-5-nano",
+        "messages": [{"role": "user", "content": "Hello!"}],
+    })
+    print(completion["choices"][0]["message"]["content"])
+except AuthenticationError:
+    print("Check your API key environment variable.")
+except RateLimitError as e:
+    if e.code == "insufficient_quota":
+        print("Account balance exhausted — top up your account.")
+    else:
+        print(f"Rate limited — back off and retry: {e}")
+except APIConnectionError:
+    print("Network error — check your connection and try again.")
+```
+
+<Accordion title="Full exception hierarchy">
+  All exceptions inherit from `APIError`. Import any of them from the top-level `warpllm` package.
+
+  | Exception | When it fires |
+  |---|---|
+  | `APIError` | Base class for all warpllm errors |
+  | `APIConnectionError` | The provider was never reached (network failure) |
+  | `APIStatusError` | Base class for all HTTP-status errors |
+  | `AuthenticationError` | Missing or invalid API key (401) |
+  | `PermissionDeniedError` | Valid key without the required entitlement (403) |
+  | `NotFoundError` | Resource not found (404) |
+  | `ConflictError` | Conflict with the current state of the resource (409) |
+  | `BadRequestError` | Malformed or invalid request (400) |
+  | `UnprocessableEntityError` | Request was understood but could not be processed (422) |
+  | `RateLimitError` | Rate limited **or** quota exhausted (429) — check `e.code` |
+  | `InternalServerError` | Provider-side 5xx error |
+
+  Every `APIStatusError` exposes `.status_code`, `.code`, `.type`, `.message`, `.request_id`, and `.headers`.
+</Accordion>
+
+<Warning>
+  `RateLimitError` covers both rate limiting **and** quota exhaustion — both arrive as HTTP 429. Check `e.code == "insufficient_quota"` to distinguish them before retrying.
+</Warning>
+
+## Supported Providers
+
+Model strings always use the `provider/model` format. The prefix is required — a bare `gpt-5-nano` is rejected rather than guessed at.
+
+<CardGroup cols={2}>
+  <Card title="OpenAI" icon="circle">
+    `OPENAI_API_KEY` — models prefixed `openai/`
+  </Card>
+  <Card title="DeepSeek" icon="circle">
+    `DEEPSEEK_API_KEY` — models prefixed `deepseek/`
+  </Card>
+  <Card title="Kimi (Moonshot)" icon="circle">
+    `MOONSHOT_API_KEY` — models prefixed `moonshot/`
+  </Card>
+  <Card title="OpenRouter" icon="circle">
+    `OPENROUTER_API_KEY` — models prefixed `openrouter/`
+  </Card>
+</CardGroup>
+
+## Available Types
+
+Import these from the top-level `warpllm` package when you need strict authoring help or want to annotate function signatures.
+
+<Accordion title="Exported types">
+  | Name | Description |
+  |---|---|
+  | `WarpLLM` | Synchronous client |
+  | `AsyncWarpLLM` | Asynchronous client |
+  | `ChatCompletionStream` | Synchronous stream iterator |
+  | `AsyncChatCompletionStream` | Asynchronous stream iterator |
+  | `CreateChatCompletionRequest` | TypedDict for request authoring |
+  | `CreateChatCompletionResponse` | TypedDict for non-streaming responses |
+  | `CreateChatCompletionStreamResponse` | TypedDict for individual stream chunks |
+  | `ChatCompletionRequestMessage` | TypedDict for a single message |
+</Accordion>

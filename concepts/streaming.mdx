@@ -1,0 +1,148 @@
+---
+title: "warpllm Streaming: Chat Completions Chunk by Chunk"
+sidebarTitle: "Streaming"
+description: "Stream chat completion chunks with warpllm using the same method call. Available in Python, Node.js, Rust, and the HTTP gateway. Set stream: true to start."
+---
+
+Streaming lets you receive a response token-by-token as the model generates it, rather than waiting for the full reply. You use the same method call in every SDK — just add `stream: true` (or `stream=True` in Python) to your request, and the return type changes from a single completion object to an iterable of chunks.
+
+## Enabling streaming
+
+Set `stream: true` on any chat completions request. Every model in the warpllm registry supports streaming — there is no separate method and no additional configuration required.
+
+<Tabs>
+  <Tab title="Python (sync)">
+    ```python
+    stream = client.chat_completions({
+        "model": "openai/gpt-5-nano",
+        "messages": [{"role": "user", "content": "Tell me a story."}],
+        "stream": True,
+    })
+    for chunk in stream:
+        print(chunk["choices"][0]["delta"].get("content", ""), end="", flush=True)
+    ```
+  </Tab>
+  <Tab title="Python (async)">
+    ```python
+    async for chunk in await async_client.chat_completions({
+        "model": "openai/gpt-5-nano",
+        "messages": [{"role": "user", "content": "Tell me a story."}],
+        "stream": True,
+    }):
+        print(chunk["choices"][0]["delta"].get("content", ""), end="", flush=True)
+    ```
+  </Tab>
+  <Tab title="Node.js">
+    ```ts
+    const stream = await client.chatCompletions({
+      model: 'openai/gpt-5-nano',
+      messages: [{ role: 'user', content: 'Tell me a story.' }],
+      stream: true,
+    })
+    for await (const chunk of stream) {
+      process.stdout.write(chunk.choices[0]?.delta.content ?? '')
+    }
+    ```
+  </Tab>
+  <Tab title="Rust">
+    ```rust
+    let mut stream = client.chat_completions_stream(CreateChatCompletionRequest {
+        model: "openai/gpt-5-nano".to_string(),
+        messages: vec![ChatCompletionRequestMessage::new("user", "Tell me a story.")],
+        ..Default::default()
+    }).await?;
+
+    while let Some(chunk) = stream.next().await {
+        for choice in &chunk?.choices {
+            if let Some(Some(text)) = &choice.delta.content {
+                print!("{text}");
+            }
+        }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## HTTP gateway (Server-Sent Events)
+
+When you use the HTTP gateway directly, send `POST /v1/chat/completions` with `"stream": true` in the JSON body. The gateway returns a stream of Server-Sent Events (SSE). Each event carries a JSON chunk in the same shape as the OpenAI streaming format.
+
+```http
+POST /v1/chat/completions
+Content-Type: application/json
+
+{
+  "model": "openai/gpt-5-nano",
+  "messages": [{ "role": "user", "content": "Tell me a story." }],
+  "stream": true
+}
+```
+
+The stream ends with the sentinel line:
+
+```text
+data: [DONE]
+```
+
+If an error occurs mid-stream, the gateway sends a final error event in place of `[DONE]`. No further chunks follow after an error event.
+
+## Bounding stalled streams with `stream_read_timeout_secs`
+
+By default, warpllm waits as long as it takes for each chunk to arrive. If an upstream provider becomes wedged — still connected, but stopped sending bytes — your stream will hang indefinitely.
+
+Set `stream_read_timeout_secs` on the client to put a bound on the silence between bytes:
+
+<CodeGroup>
+```python Python
+from warpllm import WarpLLM
+
+client = WarpLLM(stream_read_timeout=30)
+```
+
+```ts Node.js
+import { WarpLLM } from '@warpllm/warpllm'
+
+const client = new WarpLLM({ streamReadTimeout: 30 })
+```
+
+```rust Rust
+let client = Client::new(ClientConfig {
+    stream_read_timeout_secs: Some(30),
+    ..Default::default()
+})?;
+```
+</CodeGroup>
+
+<Tip>
+Set `stream_read_timeout_secs` above the slowest time-to-first-token you expect from your chosen model — not just the gap between mid-stream chunks. The wait before the very first chunk is itself a gap, and the timer starts counting from the last byte received, which is zero at stream start.
+</Tip>
+
+The timeout **resets on every byte received**. It bounds the silence between bytes, not the total stream duration. A large response that keeps arriving steadily will never trigger it, no matter how long the full reply takes. That makes it distinct from `timeout_secs`, which is a hard wall on the entire request lifecycle.
+
+<Info>
+`stream_read_timeout_secs` and `timeout_secs` serve different purposes:
+
+- `timeout_secs` — total deadline for the whole request, from send to final byte.
+- `stream_read_timeout_secs` — maximum gap between any two consecutive bytes on a stream. Resets on every byte.
+
+A slow-but-healthy stream may exceed `stream_read_timeout_secs` if the model pauses between paragraphs. Set it with headroom.
+</Info>
+
+## Stream errors
+
+A stream can fail in two distinct ways, each reported as a different error:
+
+<CardGroup cols={2}>
+  <Card title="StreamTruncated" icon="circle-xmark">
+    The provider closed the connection before sending the `[DONE]` sentinel. The reply is incomplete. This is a provider-side failure — the socket closed, so there is nothing more to receive.
+  </Card>
+  <Card title="StreamStalled" icon="clock">
+    The stream went silent for longer than `stream_read_timeout_secs` without a byte arriving. The connection is still open, but the provider stopped responding. Check whether the timeout is set below the model's slowest pause, or whether the upstream is genuinely wedged.
+  </Card>
+</CardGroup>
+
+Both errors are **terminal** — the stream does not continue after either one. Inspect the error code to decide whether to retry.
+
+<Warning>
+When a stream error occurs, any content already received is partial. Do not treat a truncated or stalled stream's output as a complete response.
+</Warning>

@@ -1,0 +1,218 @@
+---
+title: "warpllm Node.js SDK: Chat Completions in TypeScript"
+sidebarTitle: "Node.js"
+description: "Use the warpllm Node.js SDK with full TypeScript support to send chat completions, stream responses, and handle errors in Node.js."
+---
+
+The warpllm Node.js package wraps a native Rust core with a TypeScript-first API. You route requests to any supported provider using a `provider/model` string — for example `"openai/gpt-5-nano"` or `"deepseek/deepseek-v4-flash"` — and the client handles routing, error normalization, and streaming with no extra configuration.
+
+## Installation
+
+Install the package from the npm registry using your preferred package manager.
+
+<CodeGroup>
+```bash npm
+npm install @warpllm/warpllm
+```
+```bash yarn
+yarn add @warpllm/warpllm
+```
+```bash pnpm
+pnpm add @warpllm/warpllm
+```
+</CodeGroup>
+
+## Authentication
+
+warpllm reads API keys from environment variables. Export a key only for the provider you intend to use — the client silently ignores variables for providers you don't target.
+
+```bash
+export OPENAI_API_KEY=sk-...
+export DEEPSEEK_API_KEY=sk-...
+export MOONSHOT_API_KEY=sk-...
+export OPENROUTER_API_KEY=sk-...
+```
+
+<Note>
+  warpllm captures the environment **once**, at client construction time. Changing environment variables after the `new WarpLLM()` call has no effect — construct a new client to pick up a rotated key.
+</Note>
+
+## Client Constructor Options
+
+Pass an optional `WarpLLMOptions` object to the `WarpLLM` constructor to customize behavior.
+
+<ParamField path="baseUrl" type="string" optional>
+  Override the provider's default API base URL. Useful for proxies, local test servers, or drop-in compatible third-party endpoints.
+</ParamField>
+
+<ParamField path="timeout" type="number" optional>
+  Total request timeout in seconds. Defaults to **600** to match the official OpenAI SDK. This is a hard deadline for the entire round-trip and cannot distinguish a slow stream from a wedged one.
+</ParamField>
+
+<ParamField path="streamReadTimeout" type="number" optional>
+  Maximum seconds a stream may go without receiving a single byte before warpllm gives up. Disabled by default. Resets on every byte, so it bounds the **gap** between bytes rather than the total stream duration. Set this above the slowest time-to-first-token you expect — reasoning models can think in silence for tens of seconds before emitting a token.
+</ParamField>
+
+## Sending a Chat Completion
+
+<Steps>
+  <Step title="Import and construct the client">
+    ```ts
+    import { WarpLLM } from '@warpllm/warpllm'
+
+    const client = new WarpLLM()
+    ```
+
+    Pass options to the constructor if needed:
+
+    ```ts
+    const client = new WarpLLM({
+      timeout: 120,
+      streamReadTimeout: 30,
+    })
+    ```
+  </Step>
+  <Step title="Call chatCompletions">
+    Await the method to receive a fully-typed `CreateChatCompletionResponse`.
+
+    ```ts
+    const completion = await client.chatCompletions({
+      model: 'openai/gpt-5-nano',
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant.' },
+        { role: 'user', content: 'Hello!' },
+      ],
+    })
+    console.log(completion.choices[0].message.content)
+    ```
+  </Step>
+</Steps>
+
+## Streaming Responses
+
+Pass `stream: true` as a literal in the request object. TypeScript's overload resolution narrows the return type to `ChatCompletionStream`, which you iterate with `for await`.
+
+```ts
+const stream = await client.chatCompletions({
+  model: 'openai/gpt-5-nano',
+  messages: [{ role: 'user', content: 'Tell me a story.' }],
+  stream: true,
+})
+for await (const chunk of stream) {
+  process.stdout.write(chunk.choices[0]?.delta.content ?? '')
+}
+```
+
+<Tip>
+  **TypeScript overload resolution** — `chatCompletions` ships three overloads:
+
+  - A literal `stream: true` → `Promise<ChatCompletionStream>`
+  - No `stream`, `stream: false`, or `stream: null` → `Promise<CreateChatCompletionResponse>`
+  - A `boolean` variable → `Promise<CreateChatCompletionResponse | ChatCompletionStream>`
+
+  Always pass `stream: true` as a **literal** when you intend to stream. If you store `stream` in a variable typed as `boolean`, the compiler returns the union and you must narrow it at runtime — which is a nuisance. Handing back a `CreateChatCompletionResponse` that is actually a stream crashes on `.choices[0].message`, so the compiler's caution here is the right trade.
+</Tip>
+
+## Error Handling
+
+warpllm raises the same exception classes the official OpenAI SDK uses. Provider-specific failure codes are normalized before they reach you — a DeepSeek 402 "Insufficient Balance" becomes `RateLimitError` with `err.code === 'insufficient_quota'`, so your error handling works regardless of which provider served the request.
+
+```ts
+import {
+  WarpLLM,
+  AuthenticationError,
+  RateLimitError,
+  APIConnectionError,
+} from '@warpllm/warpllm'
+
+const client = new WarpLLM()
+try {
+  const completion = await client.chatCompletions({
+    model: 'openai/gpt-5-nano',
+    messages: [{ role: 'user', content: 'Hello!' }],
+  })
+  console.log(completion.choices[0].message.content)
+} catch (err) {
+  if (err instanceof AuthenticationError) {
+    console.error('Check your API key environment variable.')
+  } else if (err instanceof RateLimitError) {
+    if (err.code === 'insufficient_quota') {
+      console.error('Account balance exhausted — top up your account.')
+    } else {
+      console.error('Rate limited — back off and retry.')
+    }
+  } else if (err instanceof APIConnectionError) {
+    console.error('Network error — check your connection and try again.')
+  }
+}
+```
+
+<Warning>
+  `RateLimitError` covers both rate limiting **and** quota exhaustion — providers report both as HTTP 429. Check `err.code === 'insufficient_quota'` to distinguish them before deciding whether to retry.
+</Warning>
+
+<Accordion title="Full error class hierarchy">
+  All classes inherit from `APIError`. Import any of them directly from `@warpllm/warpllm`.
+
+  | Class | When it fires |
+  |---|---|
+  | `APIError` | Base class for all warpllm errors |
+  | `APIConnectionError` | The provider was never reached (network failure) |
+  | `AuthenticationError` | Missing or invalid API key (401) |
+  | `PermissionDeniedError` | Valid key without the required entitlement (403) |
+  | `NotFoundError` | Resource not found (404) |
+  | `ConflictError` | Conflict with the current state of the resource (409) |
+  | `BadRequestError` | Malformed or invalid request (400) |
+  | `UnprocessableEntityError` | Request was understood but could not be processed (422) |
+  | `RateLimitError` | Rate limited **or** quota exhausted (429) — check `err.code` |
+  | `InternalServerError` | Provider-side 5xx error |
+
+  Every `APIError` exposes `.status`, `.code`, `.type`, `.error`, `.requestID`, and `.headers`.
+</Accordion>
+
+## Passing Extra Request Fields
+
+`chatCompletions` is generic over `T extends CreateChatCompletionRequest`, so fields warpllm doesn't model — like `seed`, `logprobs`, or provider-specific parameters — type-check without casts and pass through to the upstream verbatim.
+
+```ts
+const completion = await client.chatCompletions({
+  model: 'openai/gpt-5-nano',
+  messages: [{ role: 'user', content: 'Hello!' }],
+  seed: 42,
+  temperature: 0.7,
+})
+```
+
+## Supported Providers
+
+Model strings always use the `provider/model` format. The prefix is required — a bare `gpt-5-nano` is rejected rather than guessed at.
+
+<CardGroup cols={2}>
+  <Card title="OpenAI" icon="circle">
+    `OPENAI_API_KEY` — models prefixed `openai/`
+  </Card>
+  <Card title="DeepSeek" icon="circle">
+    `DEEPSEEK_API_KEY` — models prefixed `deepseek/`
+  </Card>
+  <Card title="Kimi (Moonshot)" icon="circle">
+    `MOONSHOT_API_KEY` — models prefixed `moonshot/`
+  </Card>
+  <Card title="OpenRouter" icon="circle">
+    `OPENROUTER_API_KEY` — models prefixed `openrouter/`
+  </Card>
+</CardGroup>
+
+## Exported Types
+
+Every type is re-exported from the top-level `@warpllm/warpllm` package.
+
+<Accordion title="Key types">
+  | Name | Description |
+  |---|---|
+  | `WarpLLM` | The client class |
+  | `WarpLLMOptions` | Constructor options interface |
+  | `ChatCompletionStream` | Async-iterable stream of chunks |
+  | `CreateChatCompletionRequest` | Request body type |
+  | `CreateChatCompletionResponse` | Non-streaming response type |
+  | `CreateChatCompletionStreamResponse` | Individual stream chunk type |
+</Accordion>

@@ -1,0 +1,155 @@
+---
+title: "Client Configuration Reference for warpllm"
+sidebarTitle: "Client Config"
+description: "Reference for all warpllm client configuration options across Python, Node.js, and Rust, including timeouts and base URL overrides."
+---
+
+Every warpllm client is constructed with a configuration object that controls where requests go, how long to wait for them, and when to give up on a stalled stream. All options are optional — omitting them gives you sensible production defaults. API keys are never part of the config; warpllm reads those from environment variables at construction time, one variable per provider.
+
+---
+
+## Options
+
+<ParamField body="base_url" type="string" optional>
+  Overrides the API base URL for every provider. When set, all requests route through this URL instead of each provider's own endpoint.
+
+  **Python:** `base_url` · **Node.js:** `baseUrl` · **Rust:** `base_url`
+
+  Omit this in production. Set it when you want to route through a local warpllm HTTP gateway, a proxy, or a test server.
+
+  **Example:** `"http://localhost:8080/v1"` routes all requests through a locally-running warpllm gateway.
+</ParamField>
+
+<ParamField body="timeout_secs / timeout" type="integer (seconds)" optional>
+  Total request timeout. The request is cancelled if it has not completed — including receiving the full response or finishing the stream — within this many seconds.
+
+  **Python:** `timeout` · **Node.js:** `timeout` · **Rust:** `timeout_secs`
+
+  **Default:** `600` (10 minutes), matching the OpenAI SDK default.
+
+  For streaming requests this is an overall deadline — the stream is cancelled if the sum of time-to-first-token plus streaming time exceeds this value. Use the stream read timeout option to catch streams that are open but not sending data.
+</ParamField>
+
+<ParamField body="stream_read_timeout_secs / streamReadTimeout / stream_read_timeout" type="integer (seconds)" optional>
+  Maximum time a stream may go without receiving any bytes. The timer resets on every byte received and fires only when the gap between bytes exceeds this value.
+
+  **Python:** `stream_read_timeout` · **Node.js:** `streamReadTimeout` · **Rust:** `stream_read_timeout_secs`
+
+  **Default:** none (unbounded).
+
+  This catches wedged streams that are still open but not sending data — a failure the total timeout alone cannot detect. Set it **above** the slowest time-to-first-token you expect from the models you use. Reasoning models can pause for minutes before emitting their first token, and several providers send keepalive `:` comments during that pause — those count as bytes and reset the timer.
+
+  When this timeout fires, warpllm raises a `stream_stalled` error (Rust: `Error::StreamStalled`), which is distinct from a `stream_truncated` error — the stream is still open, not closed by the provider.
+</ParamField>
+
+---
+
+## Constructor Examples
+
+<CodeGroup>
+
+```python Python
+from warpllm import WarpLLM
+
+client = WarpLLM(
+    base_url="http://localhost:8080/v1",
+    timeout=120,
+    stream_read_timeout=60,
+)
+```
+
+```ts Node.js
+import { WarpLLM } from '@warpllm/warpllm'
+
+const client = new WarpLLM({
+  baseUrl: 'http://localhost:8080/v1',
+  timeout: 120,
+  streamReadTimeout: 60,
+})
+```
+
+```rust Rust
+use warpllm::{Client, ClientConfig};
+
+let client = Client::new(ClientConfig {
+    base_url: Some("http://localhost:8080/v1".into()),
+    timeout_secs: Some(120),
+    stream_read_timeout_secs: Some(60),
+})?;
+```
+
+</CodeGroup>
+
+---
+
+## Default-only Construction
+
+If you don't need to override any option, construct the client with no arguments. warpllm uses the default timeout and reads API keys from environment variables automatically.
+
+<CodeGroup>
+
+```python Python
+from warpllm import WarpLLM
+
+client = WarpLLM()
+```
+
+```ts Node.js
+import { WarpLLM } from '@warpllm/warpllm'
+
+const client = new WarpLLM()
+```
+
+```rust Rust
+use warpllm::{Client, ClientConfig};
+
+let client = Client::new(ClientConfig::default())?;
+```
+
+</CodeGroup>
+
+---
+
+## Choosing Timeout Values
+
+<Tip>
+  Start with the defaults. Only reach for explicit values when you have a concrete requirement — a hard SLA, a known-slow reasoning model, or a proxy with its own timeout you need to stay under.
+</Tip>
+
+The two timeout options answer different questions:
+
+<CardGroup cols={2}>
+  <Card title="timeout" icon="clock">
+    **How long can the whole request take?**
+
+    Use this to enforce an end-to-end deadline. A non-streaming call finishes when the full JSON response arrives. A streaming call finishes when the provider sends the `[DONE]` sentinel. If neither happens within this many seconds, warpllm cancels the request.
+
+    **Python/Node:** `timeout` · **Rust:** `timeout_secs`
+  </Card>
+  <Card title="stream read timeout" icon="signal-slash">
+    **How long can the stream go silent?**
+
+    Use this to detect streams that are open but not making progress. It resets on every byte, so it only fires when the connection is genuinely stuck — not during a slow-but-active response. Set it higher than the longest pause you expect from a thinking model.
+
+    **Python:** `stream_read_timeout` · **Node:** `streamReadTimeout` · **Rust:** `stream_read_timeout_secs`
+  </Card>
+</CardGroup>
+
+<Warning>
+  Setting `stream_read_timeout` / `streamReadTimeout` / `stream_read_timeout_secs` too low causes spurious `stream_stalled` errors on reasoning models. A model in a long think may produce no output tokens for minutes before it begins its reply. Check your provider's documented time-to-first-token range before choosing a value.
+</Warning>
+
+---
+
+## API Key Lookup
+
+warpllm does not accept API keys as constructor arguments. It reads them from the environment at construction time, one variable per provider:
+
+| Provider | Environment Variable |
+|---|---|
+| OpenAI | `OPENAI_API_KEY` |
+| DeepSeek | `DEEPSEEK_API_KEY` |
+| Kimi (Moonshot) | `MOONSHOT_API_KEY` |
+| OpenRouter | `OPENROUTER_API_KEY` |
+
+Only the key for a provider you actually route to needs to be set. Constructing the client without `DEEPSEEK_API_KEY` is fine as long as you never send a `deepseek/` request. Sending a request to a provider whose key is missing raises a `missing_api_key` error immediately, before any network call is made.

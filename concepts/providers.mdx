@@ -1,0 +1,142 @@
+---
+title: "warpllm Supported Providers and Models — Full Reference"
+sidebarTitle: "Providers"
+description: "Browse all AI providers and models supported by warpllm, including OpenAI, DeepSeek, Kimi, and OpenRouter with context window details."
+---
+
+warpllm routes requests to four providers: OpenAI, DeepSeek, Kimi, and OpenRouter. Every routable model is listed here with its context window, output token limit, and the environment variable you need to set. Pass the exact model string shown in the tables as your `model` field — the registry is strict and only the listed names are routable.
+
+<Note>
+Only the model strings listed on this page are routable. Passing an unlisted name — including a model that exists at the provider but is not in the warpllm registry — produces an `InvalidModel` error before any network request is made.
+</Note>
+
+All models listed here support both standard (non-streaming) and streaming chat completions. See [Streaming](/concepts/streaming) for how to use the streaming interface.
+
+---
+
+## OpenAI
+
+<CardGroup cols={3}>
+  <Card title="Base URL" icon="globe">
+    `https://api.openai.com/v1`
+  </Card>
+  <Card title="Environment variable" icon="key">
+    `OPENAI_API_KEY`
+  </Card>
+  <Card title="Models" icon="list">
+    18 models
+  </Card>
+</CardGroup>
+
+| Model string | Max input tokens | Max output tokens |
+|---|---|---|
+| `openai/gpt-4.1` | 1,047,576 | 32,768 |
+| `openai/gpt-4.1-mini` | 1,047,576 | 32,768 |
+| `openai/gpt-4o` | 128,000 | 16,384 |
+| `openai/gpt-4o-mini` | 128,000 | 16,384 |
+| `openai/gpt-5` | 400,000 | 128,000 |
+| `openai/gpt-5-mini` | 400,000 | 128,000 |
+| `openai/gpt-5-nano` | 400,000 | 128,000 |
+| `openai/gpt-5.1` | 400,000 | 128,000 |
+| `openai/gpt-5.2` | 400,000 | 128,000 |
+| `openai/gpt-5.4` | 1,050,000 | 128,000 |
+| `openai/gpt-5.4-mini` | 400,000 | 128,000 |
+| `openai/gpt-5.4-nano` | 400,000 | 128,000 |
+| `openai/gpt-5.5` | 1,050,000 | 128,000 |
+| `openai/gpt-5.6` | 1,050,000 | 128,000 |
+| `openai/gpt-5.6-luna` | 1,050,000 | 128,000 |
+| `openai/gpt-5.6-sol` | 1,050,000 | 128,000 |
+| `openai/gpt-5.6-terra` | 1,050,000 | 128,000 |
+| `openai/o3` | 200,000 | 100,000 |
+
+---
+
+## DeepSeek
+
+<CardGroup cols={3}>
+  <Card title="Base URL" icon="globe">
+    `https://api.deepseek.com`
+  </Card>
+  <Card title="Environment variable" icon="key">
+    `DEEPSEEK_API_KEY`
+  </Card>
+  <Card title="Models" icon="list">
+    2 models
+  </Card>
+</CardGroup>
+
+| Model string | Max input tokens | Max output tokens | Max concurrent requests |
+|---|---|---|---|
+| `deepseek/deepseek-v4-flash` | 1,000,000 | 384,000 | 2,500 |
+| `deepseek/deepseek-v4-pro` | 1,000,000 | 384,000 | 500 |
+
+<Tip>
+`deepseek-v4-flash` supports up to 2,500 concurrent requests, making it well-suited for high-throughput workloads. Switch to `deepseek-v4-pro` when you need higher quality and concurrency is less critical.
+</Tip>
+
+---
+
+## Kimi
+
+<CardGroup cols={3}>
+  <Card title="Base URL" icon="globe">
+    `https://api.moonshot.ai/v1`
+  </Card>
+  <Card title="Environment variable" icon="key">
+    `MOONSHOT_API_KEY`
+  </Card>
+  <Card title="Models" icon="list">
+    4 models
+  </Card>
+</CardGroup>
+
+The Kimi platform is branded Kimi while the API host retains the Moonshot name, which is why the environment variable is `MOONSHOT_API_KEY`. Kimi does not publish a per-model output token ceiling, so the table shows only input (context window) sizes.
+
+| Model string | Max input tokens |
+|---|---|
+| `kimi/kimi-k2.6` | 262,144 |
+| `kimi/kimi-k2.7-code` | 262,144 |
+| `kimi/kimi-k2.7-code-highspeed` | 262,144 |
+| `kimi/kimi-k3` | 1,048,576 |
+
+<Info>
+`kimi-k2.7-code` and `kimi-k2.7-code-highspeed` share the same context window and are optimized for code generation tasks. The `highspeed` variant prioritizes throughput.
+</Info>
+
+---
+
+## OpenRouter
+
+<CardGroup cols={3}>
+  <Card title="Base URL" icon="globe">
+    `https://openrouter.ai/api/v1`
+  </Card>
+  <Card title="Environment variable" icon="key">
+    `OPENROUTER_API_KEY`
+  </Card>
+  <Card title="Models" icon="list">
+    9 models
+  </Card>
+</CardGroup>
+
+OpenRouter is an aggregator — each model string routes to OpenRouter, which then fans out across multiple backend providers. The context window and output limits shown here are the **narrowest** any endpoint serving that model offers, because an unpinned request may land on any backend. Treat these figures as guaranteed minimums.
+
+| Model string | Max input tokens | Max output tokens |
+|---|---|---|
+| `openrouter/anthropic/claude-opus-4` | 200,000 | 32,000 |
+| `openrouter/anthropic/claude-sonnet-4` | 200,000 | 64,000 |
+| `openrouter/auto` | — | — |
+| `openrouter/google/gemini-2.5-pro` | 1,048,576 | 65,536 |
+| `openrouter/moonshotai/kimi-k2.6` | 256,000 | — |
+| `openrouter/moonshotai/kimi-k2.7-code` | 256,000 | — |
+| `openrouter/moonshotai/kimi-k3` | 974,842 | — |
+| `openrouter/openai/gpt-5.6` | 1,050,000 | 128,000 |
+| `openrouter/~deepseek/deepseek-v4-flash-latest` | 1,048,576 | — |
+
+<Accordion title="Why some OpenRouter models have no output limit listed">
+OpenRouter routes a single model slug across many backend providers that can disagree on output token limits by a wide margin — for example, different backends serving `kimi-k2.6` cap output anywhere from 16,384 to 262,144 tokens. Quoting any single figure as the limit would be misleading, so warpllm omits it rather than promise a ceiling a routed request may not get.
+</Accordion>
+
+<Accordion title="What does openrouter/auto do?">
+`openrouter/auto` is OpenRouter's own model-selection alias. When you use it, OpenRouter picks a backend model for each request based on its own routing logic. Because the model that actually handles the request varies, warpllm cannot record fixed context or output limits for it.
+</Accordion>

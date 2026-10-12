@@ -1,0 +1,71 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "warpllm",
+  "theme": "luma",
+  "colors": {
+    "primary": "#5c64f4",
+    "light": "#acb4fc",
+    "dark": "#ffffff"
+  },
+  "favicon": "https://media.brand.dev/bdf1d847-06bd-4151-b03e-50a3e244afbd.png",
+  "logo": {
+    "light": "https://media.brand.dev/f5cf9483-55db-4419-81cb-331fd5cf7957.svg",
+    "dark": "https://media.brand.dev/f5cf9483-55db-4419-81cb-331fd5cf7957.svg"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/warpllm/warpllm"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/model-routing",
+              "concepts/providers",
+              "concepts/streaming",
+              "concepts/errors"
+            ]
+          },
+          {
+            "group": "SDK Guides",
+            "pages": [
+              "guides/python",
+              "guides/node",
+              "guides/rust"
+            ]
+          },
+          {
+            "group": "HTTP Gateway",
+            "pages": [
+              "gateway/overview",
+              "gateway/running",
+              "gateway/configuration"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/model-registry",
+              "reference/client-config",
+              "reference/error-codes"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

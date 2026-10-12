@@ -1,0 +1,55 @@
+---
+title: "Configure the warpllm HTTP Gateway: CLI Flags Reference"
+sidebarTitle: "Configuration"
+description: "Learn the CLI flags that configure the warpllm HTTP gateway at startup, including host, port, request timeout, and streaming timeout."
+---
+
+All gateway configuration is supplied through CLI flags at startup — there is no configuration file. The flags let you control which address and port the gateway binds to and how long it waits for upstream providers before giving up. Every flag has a sensible default, so you can run the gateway with no arguments and override only what you need.
+
+<Warning>
+  The HTTP gateway is available on the `main` branch but has **not yet been released as a versioned package**. You must build from source before using these flags. See [Running the Gateway](/gateway/running) for instructions.
+</Warning>
+
+<Tip>
+  Run `warpllm-server --help` to print all available flags alongside their defaults at any time.
+</Tip>
+
+## Flags
+
+<ParamField path="--host" type="string" default="0.0.0.0">
+  The IP address the gateway binds to. The default `0.0.0.0` accepts connections on all network interfaces. Set this to `127.0.0.1` to restrict the gateway to loopback connections only.
+</ParamField>
+
+<ParamField path="--port" type="u16" default="8080">
+  The TCP port the gateway listens on. Change this if another process already owns `8080` or if you need a different port.
+</ParamField>
+
+<ParamField path="--timeout-secs" type="u64" default="600">
+  The maximum number of seconds the gateway waits for a complete response from an upstream provider. This clock starts when the gateway sends the request and stops when the upstream finishes sending the response body (or the SSE stream closes). If the upstream does not respond within this window, the gateway returns a `504` error to the caller.
+</ParamField>
+
+<ParamField path="--stream-read-timeout-secs" type="u64">
+  The maximum number of seconds the gateway will wait between consecutive bytes in a streaming response. This flag is **optional** — if you omit it, the gateway reads streams without a gap timeout.
+
+  The timer resets on every byte received, so it bounds the silence between chunks rather than the total stream duration. If the upstream goes quiet for longer than this value, the gateway closes the stream and sends a `504` error event to the caller.
+
+  <Warning>
+    Set this value higher than the slowest time-to-first-token you expect from any model you route through the gateway. Reasoning models may pause for several minutes before emitting their first token — that pre-token pause counts as a gap. If you set this too low, the gateway will abandon the stream before the model begins responding.
+  </Warning>
+</ParamField>
+
+## Example
+
+The following command starts the gateway on loopback only, on a non-default port, with a two-minute upstream timeout and a one-minute stream silence limit:
+
+```bash
+warpllm-server \
+  --host 127.0.0.1 \
+  --port 9090 \
+  --timeout-secs 120 \
+  --stream-read-timeout-secs 60
+```
+
+<Info>
+  `--timeout-secs` and `--stream-read-timeout-secs` are independent controls. `--timeout-secs` caps the total time the gateway waits for an upstream response; `--stream-read-timeout-secs` caps how long a stream may be silent between any two bytes. Both apply simultaneously when streaming.
+</Info>

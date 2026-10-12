@@ -1,0 +1,325 @@
+---
+title: "warpllm Rust SDK: Async Chat Completions and Streaming"
+sidebarTitle: "Rust"
+description: "Use the warpllm Rust crate to send async chat completions and stream responses. Bring your own tokio runtime — no global state required."
+---
+
+The `warpllm` crate is a fully async Rust client for OpenAI-compatible chat completions. It routes requests to any supported provider using a `provider/model` string, normalizes provider failures into a flat `Error` enum, and streams Server-Sent Events back to you with no hidden threads or global state. You bring your own async runtime — tokio is the standard choice.
+
+## Installation
+
+Add the crate to your `Cargo.toml`:
+
+<CodeGroup>
+```toml Cargo.toml
+[dependencies]
+warpllm = "0.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+```bash cargo add
+cargo add warpllm
+cargo add tokio --features macros,rt-multi-thread
+```
+</CodeGroup>
+
+<Note>
+  warpllm is async but ships **no runtime of its own** — it integrates with whatever executor you already use. tokio with the `macros` and `rt-multi-thread` features is the most common choice. The `macros` feature provides the `#[tokio::main]` attribute; `rt-multi-thread` enables the multi-threaded scheduler.
+</Note>
+
+## Authentication
+
+warpllm reads API keys from environment variables at `Client::new` time. Export a key only for the provider you intend to use.
+
+```bash
+export OPENAI_API_KEY=sk-...
+export DEEPSEEK_API_KEY=sk-...
+export MOONSHOT_API_KEY=sk-...
+export OPENROUTER_API_KEY=sk-...
+```
+
+<Tip>
+  warpllm captures the environment once, when you call `Client::new`. The client then holds whichever keys it found — changes to environment variables after construction are not observed. Construct a new client to pick up rotated credentials.
+</Tip>
+
+## Client Configuration
+
+Construct a `Client` by passing a `ClientConfig`. Use `ClientConfig::default()` to accept all defaults.
+
+<ParamField path="base_url" type="Option<String>" optional>
+  Override the provider's default API base URL. Useful for proxies, local test servers, or compatible third-party endpoints. Absent means each provider uses its own API URL.
+</ParamField>
+
+<ParamField path="timeout_secs" type="Option<u64>" optional>
+  Total request timeout in seconds. Defaults to **600** to match the OpenAI SDK. This is a hard deadline for the entire round-trip — it cannot distinguish a slow stream from a wedged one.
+</ParamField>
+
+<ParamField path="stream_read_timeout_secs" type="Option<u64>" optional>
+  Maximum seconds a stream may go without receiving a single byte before warpllm gives up. Absent by default (no gap limit). Resets on every byte, so it bounds the **gap** rather than total duration. Set this above the slowest time-to-first-token you expect — reasoning models can think in silence for tens of seconds, and several providers also emit `:` keepalive comments during a long think, which count as bytes.
+</ParamField>
+
+## Sending a Chat Completion
+
+<Steps>
+  <Step title="Import the necessary types">
+    ```rust
+    use warpllm::{
+        ChatCompletionRequestMessage, Client, ClientConfig, CreateChatCompletionRequest,
+    };
+    ```
+  </Step>
+  <Step title="Construct the client">
+    ```rust
+    let client = Client::new(ClientConfig::default())?;
+    ```
+
+    To customize the client, populate `ClientConfig` directly:
+
+    ```rust
+    let client = Client::new(ClientConfig {
+        timeout_secs: Some(120),
+        stream_read_timeout_secs: Some(30),
+        ..Default::default()
+    })?;
+    ```
+  </Step>
+  <Step title="Build and send the request">
+    ```rust
+    let completion = client
+        .chat_completions(CreateChatCompletionRequest {
+            model: "openai/gpt-5-nano".to_string(),
+            messages: vec![
+                ChatCompletionRequestMessage::new("system", "You are a helpful assistant."),
+                ChatCompletionRequestMessage::new("user", "Hello!"),
+            ],
+            ..Default::default()
+        })
+        .await?;
+
+    let content = completion.choices[0].message.content.as_deref();
+    println!("{}", content.unwrap_or_default());
+    ```
+  </Step>
+</Steps>
+
+Full working example:
+
+```rust
+use warpllm::{ChatCompletionRequestMessage, Client, ClientConfig, CreateChatCompletionRequest};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Client::new(ClientConfig::default())?;
+
+    let completion = client
+        .chat_completions(CreateChatCompletionRequest {
+            model: "openai/gpt-5-nano".to_string(),
+            messages: vec![
+                ChatCompletionRequestMessage::new("system", "You are a helpful assistant."),
+                ChatCompletionRequestMessage::new("user", "Hello!"),
+            ],
+            ..Default::default()
+        })
+        .await?;
+
+    let content = completion.choices[0].message.content.as_deref();
+    println!("{}", content.unwrap_or_default());
+    Ok(())
+}
+```
+
+## Streaming Responses
+
+Call `chat_completions_stream` to receive a `ChatCompletionStream`. Drive it with `while let Some(chunk) = stream.next().await`. The `Result` from `chat_completions_stream` covers only what can fail before the first chunk — once the stream is open, failures arrive as `Err` items on it.
+
+```rust
+use warpllm::{ChatCompletionRequestMessage, Client, ClientConfig, CreateChatCompletionRequest};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Client::new(ClientConfig::default())?;
+
+    let mut stream = client
+        .chat_completions_stream(CreateChatCompletionRequest {
+            model: "openai/gpt-5-nano".to_string(),
+            messages: vec![
+                ChatCompletionRequestMessage::new("user", "Tell me a story."),
+            ],
+            ..Default::default()
+        })
+        .await?;
+
+    while let Some(chunk) = stream.next().await {
+        for choice in &chunk?.choices {
+            if let Some(Some(text)) = &choice.delta.content {
+                print!("{text}");
+            }
+        }
+    }
+    Ok(())
+}
+```
+
+<Info>
+  You do not need to set `stream: Some(true)` on the request when calling `chat_completions_stream` — the method sets it on your behalf. Conversely, calling `chat_completions` with `stream: Some(true)` returns an `Err(Error::InvalidInput(...))` pointing you to the streaming method.
+</Info>
+
+<Note>
+  `stream.next().await` returning `None` means the reply is **complete**. A provider that stopped early ends the stream with `Err(Error::StreamTruncated { .. })` after all chunks that did arrive — so you never silently collect a truncated answer.
+</Note>
+
+## Error Handling
+
+`Error` is a flat `#[non_exhaustive]` enum. Match on it directly — no nested `kind` unwrapping required.
+
+```rust
+use warpllm::{
+    ChatCompletionRequestMessage, Client, ClientConfig,
+    CreateChatCompletionRequest, Error,
+};
+
+#[tokio::main]
+async fn main() {
+    let client = Client::new(ClientConfig::default()).unwrap();
+
+    let result = client
+        .chat_completions(CreateChatCompletionRequest {
+            model: "openai/gpt-5-nano".to_string(),
+            messages: vec![
+                ChatCompletionRequestMessage::new("user", "Hello!"),
+            ],
+            ..Default::default()
+        })
+        .await;
+
+    match result {
+        Ok(completion) => {
+            println!(
+                "{}",
+                completion.choices[0].message.content.as_deref().unwrap_or_default()
+            );
+        }
+        Err(Error::MissingApiKey { provider, env_var: Some(var) }) => {
+            eprintln!("Set {var} to use {provider}");
+        }
+        Err(Error::RateLimited(e)) => {
+            eprintln!("Rate limited by {}: {e}", e.provider);
+        }
+        Err(e) => {
+            eprintln!("Error: {e}");
+        }
+    }
+}
+```
+
+### Understanding the Error Enum
+
+`Error` is flat by design — a provider failure is not a special nested kind that needs unwrapping, it sits beside warpllm's own gateway failures as a direct variant. Because the enum is `#[non_exhaustive]`, always include a catch-all `Err(e)` arm so your code compiles as new variants are added.
+
+Two methods help you work with the enum programmatically:
+
+<CardGroup cols={2}>
+  <Card title="error.origin()" icon="code">
+    Returns `Origin::Gateway` when the failure happened before any request reached a provider (invalid input, missing key, network error), or `Origin::Provider` when the upstream answered and its answer was a failure. Use this to decide whether retrying the identical call is even worth attempting.
+  </Card>
+  <Card title="error.provider_error()" icon="code">
+    Returns `Some(&ProviderError)` for every variant where `origin()` is `Origin::Provider`, and `None` otherwise. The `ProviderError` carries the upstream's raw HTTP status, message, error type, provider code, retry-after hint, and request ID.
+  </Card>
+</CardGroup>
+
+<Accordion title="All Error variants">
+  | Variant | Origin | Description |
+  |---|---|---|
+  | `InvalidInput(String)` | Gateway | The request was rejected before reaching any provider |
+  | `InvalidModel { given }` | Gateway | No registered model spec matched the `provider/model` string |
+  | `MissingApiKey { provider, env_var }` | Gateway | The required key was absent at construction time |
+  | `Network { provider, source }` | Gateway | The provider was never reached |
+  | `Decode { provider, message }` | Gateway | The provider answered with a success warpllm couldn't parse |
+  | `StreamTruncated { provider }` | Gateway | The stream socket closed before the `[DONE]` sentinel |
+  | `StreamStalled { provider, timeout }` | Gateway | No bytes arrived within `stream_read_timeout_secs` |
+  | `Internal(String)` | Gateway | warpllm setup failure (e.g. TLS backend unavailable) |
+  | `RateLimited(Box<ProviderError>)` | Provider | HTTP 429 rate limit |
+  | `QuotaExceeded(Box<ProviderError>)` | Provider | Account out of credit (distinct from rate limit — waiting won't fix it) |
+  | `Overloaded(Box<ProviderError>)` | Provider | Provider shedding load (503 / Anthropic 529) |
+  | `ServerError(Box<ProviderError>)` | Provider | Unattributed provider 5xx |
+  | `ContextLengthExceeded(Box<ProviderError>)` | Provider | Prompt exceeds the model's context window |
+  | `ContentFilter(Box<ProviderError>)` | Provider | Provider refused on safety grounds |
+  | `Authentication(Box<ProviderError>)` | Provider | Upstream rejected the credential |
+  | `PermissionDenied(Box<ProviderError>)` | Provider | Valid credential without required entitlement |
+  | `ModelNotFound(Box<ProviderError>)` | Provider | Provider doesn't recognize the model name |
+  | `InvalidRequest(Box<ProviderError>)` | Provider | Upstream rejected the request as malformed |
+  | `Unknown(Box<ProviderError>)` | Provider | Provider failed without a classifiable reason |
+</Accordion>
+
+<Warning>
+  `QuotaExceeded` and `RateLimited` are distinct variants even though both arrive as HTTP 429 from most providers. Waiting clears a rate limit and never clears an exhausted quota — match them separately so you know which remedy to apply.
+</Warning>
+
+## Diagnostics with tracing
+
+warpllm emits structured events through the [`tracing`](https://docs.rs/tracing) crate, including which providers were discovered at startup and which key variables were found. Install a subscriber to see them:
+
+```rust
+tracing_subscriber::fmt()
+    .with_env_filter("warpllm=info")
+    .init();
+```
+
+warpllm installs no subscriber of its own, so nothing appears until you opt in. This keeps the crate usable as a library without hijacking your application's logging.
+
+## Supported Providers
+
+Model strings always use the `provider/model` format. The prefix is required — a bare `"gpt-5-nano"` is rejected rather than guessed at.
+
+<CardGroup cols={2}>
+  <Card title="OpenAI" icon="circle">
+    `OPENAI_API_KEY` — models prefixed `openai/`
+  </Card>
+  <Card title="DeepSeek" icon="circle">
+    `DEEPSEEK_API_KEY` — models prefixed `deepseek/`
+  </Card>
+  <Card title="Kimi (Moonshot)" icon="circle">
+    `MOONSHOT_API_KEY` — models prefixed `moonshot/`
+  </Card>
+  <Card title="OpenRouter" icon="circle">
+    `OPENROUTER_API_KEY` — models prefixed `openrouter/`
+  </Card>
+</CardGroup>
+
+## Public API Reference
+
+Every name listed here is exported from the crate root and stable as of 0.3.
+
+<Accordion title="Client and configuration">
+  | Name | Kind | Description |
+  |---|---|---|
+  | `Client` | struct | The main HTTP client — construct once, reuse across requests |
+  | `ClientConfig` | struct | Constructor options (base URL, timeouts) |
+  | `ChatCompletionStream` | struct | Stream of chunks returned by `chat_completions_stream` |
+</Accordion>
+
+<Accordion title="Request and response types">
+  | Name | Kind | Description |
+  |---|---|---|
+  | `CreateChatCompletionRequest` | struct | Full request body, with `..Default::default()` for optional fields |
+  | `ChatCompletionRequestMessage` | struct | A single conversation message — construct with `::new(role, content)` |
+  | `CreateChatCompletionResponse` | struct | Non-streaming response |
+  | `CreateChatCompletionStreamResponse` | struct | A single streaming chunk |
+</Accordion>
+
+<Accordion title="Error types">
+  | Name | Kind | Description |
+  |---|---|---|
+  | `Error` | enum | Flat, `#[non_exhaustive]` error enum |
+  | `Origin` | enum | `Gateway` or `Provider` — use `error.origin()` |
+  | `ProviderError` | struct | Upstream failure details — carried by every provider-side `Error` variant |
+  | `Result<T>` | type alias | `std::result::Result<T, Error>` |
+</Accordion>
+
+<Accordion title="Registry types">
+  | Name | Kind | Description |
+  |---|---|---|
+  | `fetch_model` | fn | Look up a `(ProviderSpec, ModelSpec)` pair by `"provider/model"` string |
+  | `ModelSpec` | struct | A registered model's name, provider, and capabilities |
+  | `ProviderSpec` | struct | A provider's name, base URL, and key variable |
+  | `Capabilities` | struct | What a model supports (context window, modalities, etc.) |
+</Accordion>

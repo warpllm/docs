@@ -1,0 +1,75 @@
+---
+title: "warpllm: Unified AI Gateway SDK for Python, Node, and Rust"
+sidebarTitle: "Introduction"
+description: "warpllm routes LLM requests across OpenAI, DeepSeek, Kimi, and OpenRouter with one SDK. Switch providers by changing a model string."
+---
+
+warpllm is a Rust-native AI gateway SDK that gives you a single, unified interface for every major LLM provider. You write one request, and warpllm handles routing it to OpenAI, DeepSeek, Kimi, or OpenRouter — switching providers is as simple as changing the `provider/model` string. The core is compiled Rust, so every Python, Node.js, and Rust application benefits from native-binary performance without a build step on your end.
+
+## Why warpllm
+
+<CardGroup cols={2}>
+  <Card title="One interface, every provider" icon="route" href="/concepts/providers">
+    Send the same request shape to OpenAI, DeepSeek, Kimi, or OpenRouter. The `provider/model` prefix is the only thing that changes.
+  </Card>
+  <Card title="Warp-speed Rust core" icon="bolt" href="/installation">
+    The SDK is compiled from Rust for every target platform. Python and Node.js load a native binary extension — no interpreted overhead, no runtime dependency.
+  </Card>
+  <Card title="Fail-closed routing" icon="shield-check" href="/concepts/model-routing">
+    A model string warpllm doesn't recognise is an error, never a guess. Unknown names are rejected before the network, so a typo can't become an unexpected bill.
+  </Card>
+  <Card title="Streaming built in" icon="wave-sine" href="/concepts/streaming">
+    Version 0.3.1 delivers streaming from the Rust core, both SDK bindings, and the OpenAI-compatible HTTP gateway — the same method, the same model string.
+  </Card>
+</CardGroup>
+
+## Supported providers
+
+warpllm routes requests to four providers today. Each provider is identified by a prefix in the model string:
+
+| Model string | Provider | API key |
+| --- | --- | --- |
+| `openai/gpt-5-nano` | OpenAI | `OPENAI_API_KEY` |
+| `deepseek/deepseek-v4-flash` | DeepSeek | `DEEPSEEK_API_KEY` |
+| `kimi/kimi-k3` | Kimi (Moonshot AI) | `MOONSHOT_API_KEY` |
+| `openrouter/anthropic/claude-sonnet-4` | OpenRouter | `OPENROUTER_API_KEY` |
+
+The `provider/` prefix is required. warpllm matches the entire string against its built-in registry, so a bare model name like `gpt-5-nano` is rejected rather than silently routed.
+
+## Two product surfaces
+
+warpllm ships as two distinct things you can use independently:
+
+**The SDK** — available as `warpllm` on PyPI, `@warpllm/warpllm` on npm, and `warpllm` on crates.io. Install it in your Python, Node.js, or Rust project and call `chat_completions` directly from your code.
+
+**The HTTP gateway** — an OpenAI-compatible server you can self-host. Point any OpenAI SDK at it and get warpllm's multi-provider routing without changing your application code. The gateway has landed on `main` but is not yet published as a standalone release.
+
+## Current version: 0.3.1
+
+All three packages share the same version number and are released together. Version 0.3.1 adds streaming across every surface — the Rust core, both SDK bindings, and the HTTP gateway — alongside the Kimi provider and the full OpenAI chat-completion roster. It is a breaking release from `0.2.x`: response fields that are optional *and* nullable now distinguish an absent key from an explicit `null`. See the [changelog](https://github.com/warpllm/warpllm/blob/main/CHANGELOG.md) before upgrading.
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="play" href="/quickstart">
+    Install warpllm, set your API key, and make your first chat completion in under 5 minutes.
+  </Card>
+  <Card title="Python SDK" icon="python" href="/guides/python">
+    Full guide for using warpllm in Python, including sync and async clients and streaming.
+  </Card>
+  <Card title="Node.js SDK" icon="node-js" href="/guides/node">
+    Full guide for using warpllm in Node.js and TypeScript, with async iteration for streams.
+  </Card>
+  <Card title="Rust SDK" icon="rust" href="/guides/rust">
+    Full guide for the native Rust crate, including the async client, streaming, and error handling.
+  </Card>
+</CardGroup>
+
+<CardGroup cols={2}>
+  <Card title="HTTP Gateway" icon="server" href="/gateway/overview">
+    Run a self-hosted OpenAI-compatible proxy that routes to any provider in the registry.
+  </Card>
+  <Card title="Model Registry" icon="database" href="/reference/model-registry">
+    Browse all supported providers and models, context windows, and required API keys.
+  </Card>
+</CardGroup>

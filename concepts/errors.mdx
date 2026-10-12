@@ -1,0 +1,147 @@
+---
+title: "warpllm Error Handling: Classes, Codes, and Retries"
+sidebarTitle: "Errors"
+description: "warpllm normalizes errors from all providers into OpenAI-compatible error classes. Learn error codes, how to handle them, and what they mean."
+---
+
+warpllm normalizes every provider failure into the same OpenAI-compatible error classes you already know from the official OpenAI SDK. A DeepSeek 402 for an exhausted balance surfaces as a 429 `RateLimitError` with code `insufficient_quota`, because that is exactly what OpenAI sends for the same situation — and your error handling should not have to know which provider served the request. Only the error code distinguishes failures that share a status, so always read it before deciding how to respond.
+
+## Error origins
+
+Every warpllm error comes from one of two places:
+
+<CardGroup cols={2}>
+  <Card title="Gateway" icon="shield">
+    warpllm's own failure, before any network request. The provider was never contacted. Retrying the identical call will not help — fix the request or configuration first.
+
+    Examples: invalid model string, missing API key.
+  </Card>
+  <Card title="Provider" icon="server">
+    The upstream answered and its answer was a failure. A `ProviderError` is attached with the raw response, status, and everything the provider said.
+
+    Examples: rate limit, quota exhaustion, content filter.
+  </Card>
+</CardGroup>
+
+## Error classes
+
+All SDKs expose the same set of exception classes. Catch the most specific class you want to handle, and let the rest propagate.
+
+| Class | HTTP status | When it occurs |
+|---|---|---|
+| `AuthenticationError` | 401 | Missing or invalid API key |
+| `BadRequestError` | 400 | Invalid model string or request |
+| `RateLimitError` | 429 | Rate limit exceeded or quota exhausted |
+| `InternalServerError` | 500 | Provider 5xx or internal gateway error |
+| `NotFoundError` | 404 | Model not found at provider |
+| `PermissionDeniedError` | 403 | Credential lacks permission |
+| `APIConnectionError` | — | Network error reaching provider |
+| `UnprocessableEntityError` | 422 | Malformed request |
+
+## Catching errors
+
+<CodeGroup>
+```python Python
+from warpllm import WarpLLM, RateLimitError, AuthenticationError, APIConnectionError
+
+client = WarpLLM()
+try:
+    completion = client.chat_completions({
+        "model": "openai/gpt-5-nano",
+        "messages": [{"role": "user", "content": "Hello!"}],
+    })
+except AuthenticationError:
+    print("Check your OPENAI_API_KEY environment variable")
+except RateLimitError as e:
+    if e.code == "insufficient_quota":
+        print("Account is out of credit — top up your balance")
+    else:
+        print("Rate limited — back off and retry")
+except APIConnectionError:
+    print("Could not reach the provider")
+```
+
+```ts Node.js
+import { WarpLLM, AuthenticationError, RateLimitError } from '@warpllm/warpllm'
+
+const client = new WarpLLM()
+try {
+  const completion = await client.chatCompletions({
+    model: 'openai/gpt-5-nano',
+    messages: [{ role: 'user', content: 'Hello!' }],
+  })
+} catch (err) {
+  if (err instanceof AuthenticationError) {
+    console.error('Check your API key')
+  } else if (err instanceof RateLimitError) {
+    if (err.code === 'insufficient_quota') {
+      console.error('Account is out of credit — top up your balance')
+    } else {
+      console.error('Rate limited — back off and retry')
+    }
+  }
+}
+```
+</CodeGroup>
+
+## Error codes
+
+Each error carries a `code` string that identifies the specific failure. Use the code when a class alone is not precise enough — for example, to tell `rate_limit_exceeded` apart from `insufficient_quota` when both arrive as `RateLimitError`.
+
+| Code | What it means |
+|---|---|
+| `invalid_request` | warpllm rejected the call — wrong model string, invalid input, or a missing required field |
+| `invalid_api_key` | No API key is set for the required provider |
+| `connection_error` | Network error before reaching the provider |
+| `rate_limit_exceeded` | Provider rate limit — back off and retry |
+| `insufficient_quota` | Account is out of credit — waiting does not fix this |
+| `context_length_exceeded` | Prompt is too long for the model's context window |
+| `content_filter` | Provider refused the request on safety grounds |
+| `stream_truncated` | Provider closed the stream before it was complete |
+| `stream_stalled` | Stream exceeded `stream_read_timeout_secs` with no bytes received |
+
+## `insufficient_quota` vs `rate_limit_exceeded`
+
+Both codes arrive inside a `RateLimitError` (HTTP 429), but they require completely different responses.
+
+<Tabs>
+  <Tab title="rate_limit_exceeded">
+    The account has sent requests faster than the provider allows. **Backing off and retrying will fix this.** Implement an exponential back-off and respect any `Retry-After` header the provider includes.
+  </Tab>
+  <Tab title="insufficient_quota">
+    The account is out of credit or has hit a spend cap. **Waiting will not fix this** — no amount of retry delay restores a depleted balance. You need to top up the account or raise the spend limit before any further requests will succeed.
+  </Tab>
+</Tabs>
+
+<Warning>
+Do not treat all `RateLimitError` exceptions as transient. Check `err.code` before entering a retry loop — retrying an `insufficient_quota` error wastes time and may rack up further failures.
+</Warning>
+
+## `stream_truncated` vs `stream_stalled`
+
+Both errors terminate a stream, but they have different causes and different remedies.
+
+<Accordion title="StreamTruncated — the provider hung up early">
+  The provider closed the connection before sending the `[DONE]` sentinel that signals a complete response. The stream ended, but the reply is not whole. This is a provider-side failure — the socket closed, so there is nothing more to receive. The output you have so far is partial; do not treat it as a complete response.
+
+  **What to do:** treat it as a transient upstream error and consider retrying the full request.
+</Accordion>
+
+<Accordion title="StreamStalled — silence exceeded the timeout">
+  The stream went quiet for longer than `stream_read_timeout_secs` without a single byte arriving. The connection is still open, but warpllm stopped waiting. There are two possible causes:
+
+  - The upstream is genuinely wedged and will never send another byte.
+  - `stream_read_timeout_secs` is set tighter than the model's slowest pause between chunks.
+
+  **What to do:** first check whether your timeout is too aggressive for the model you are using, then retry if the upstream appears to be the culprit. See [Streaming](/concepts/streaming) for guidance on setting `stream_read_timeout_secs`.
+</Accordion>
+
+## Provider error normalization
+
+warpllm classifies provider failures into its own taxonomy before surfacing them to you, and maps each class to the OpenAI status and error type a caller can act on. A failure warpllm classified is reported the way OpenAI would report it — regardless of which provider actually served the request.
+
+A failure warpllm did **not** classify is passed through with the upstream's own status and error body, unchanged, so you always have the raw evidence even when warpllm has no vocabulary for it.
+
+<Note>
+The normalization is one-way and deliberate. It means your `except RateLimitError` and `catch (err instanceof RateLimitError)` branches fire for rate limits from every provider — you do not need a separate branch for each upstream's quirks.
+</Note>

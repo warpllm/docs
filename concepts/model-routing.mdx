@@ -1,0 +1,120 @@
+---
+title: "warpllm Model Routing: the provider/model String Format"
+sidebarTitle: "Model Routing"
+description: "warpllm routes every request using a provider/model string. Learn the format, why prefixes are required, and how to switch providers."
+---
+
+Every request you send to warpllm names a model with a `provider/model` string — a two-part identifier that tells the gateway exactly which upstream to call and which model to ask for. This explicit format is how warpllm routes without guessing: it matches the full string against its registry, and anything it does not recognize produces an error before a single network byte leaves your machine.
+
+## The `provider/model` format
+
+A routing string is always `provider/model`, for example:
+
+- `openai/gpt-5-nano`
+- `deepseek/deepseek-v4-flash`
+- `kimi/kimi-k3`
+- `openrouter/anthropic/claude-sonnet-4`
+
+The `provider/` prefix is **required**. A bare model name like `gpt-5-nano` is rejected immediately with an `InvalidModel` error — warpllm does not guess at which provider you meant.
+
+<Note>
+OpenRouter model strings contain an extra slash because OpenRouter's own identifiers are two-segment slugs, e.g. `anthropic/claude-sonnet-4`. The full warpllm string therefore has three segments: `openrouter/anthropic/claude-sonnet-4`.
+</Note>
+
+## How the registry works
+
+warpllm maintains a strict registry of every routable `provider/model` pair. When you pass a model string, the gateway looks it up verbatim. There is no wildcard, no fuzzy match, and no fallback — an unrecognized string produces an `InvalidModel` error before any network request goes out.
+
+This behaviour means:
+
+- Typos fail loudly and immediately, rather than silently routing somewhere you did not intend.
+- You always know exactly which provider and model a request will reach.
+- Removing a model from the registry breaks nothing at runtime until a request actually names it.
+
+## Provider environment variables
+
+Each provider reads its API key from a specific environment variable. Set the variable for every provider your code targets.
+
+| Model string | Required environment variable |
+|---|---|
+| `openai/gpt-5-nano` | `OPENAI_API_KEY` |
+| `deepseek/deepseek-v4-flash` | `DEEPSEEK_API_KEY` |
+| `kimi/kimi-k3` | `MOONSHOT_API_KEY` |
+| `openrouter/anthropic/claude-sonnet-4` | `OPENROUTER_API_KEY` |
+
+If the required variable is not set when a request arrives, warpllm returns a `MissingApiKey` error (HTTP 401) that names the variable to set. See [Providers](/concepts/providers) for the full list of model strings and their environment variables.
+
+## Switching providers is a one-string change
+
+Because the provider is encoded in the model string itself, switching providers means changing one string and exporting the new provider's API key — no client re-initialization, no configuration file, no new method call.
+
+<CodeGroup>
+```python Python
+# Start with OpenAI
+completion = client.chat_completions({
+    "model": "openai/gpt-5-nano",
+    "messages": [{"role": "user", "content": "Hello!"}],
+})
+
+# Switch to DeepSeek — change the model string and set DEEPSEEK_API_KEY
+completion = client.chat_completions({
+    "model": "deepseek/deepseek-v4-flash",
+    "messages": [{"role": "user", "content": "Hello!"}],
+})
+```
+
+```ts Node.js
+// Start with OpenAI
+const completion = await client.chatCompletions({
+  model: 'openai/gpt-5-nano',
+  messages: [{ role: 'user', content: 'Hello!' }],
+})
+
+// Switch to DeepSeek — change the model string and set DEEPSEEK_API_KEY
+const completion = await client.chatCompletions({
+  model: 'deepseek/deepseek-v4-flash',
+  messages: [{ role: 'user', content: 'Hello!' }],
+})
+```
+
+```rust Rust
+// Start with OpenAI
+let completion = client.chat_completions(CreateChatCompletionRequest {
+    model: "openai/gpt-5-nano".to_string(),
+    messages: vec![ChatCompletionRequestMessage::new("user", "Hello!")],
+    ..Default::default()
+}).await?;
+
+// Switch to DeepSeek — change the model string and set DEEPSEEK_API_KEY
+let completion = client.chat_completions(CreateChatCompletionRequest {
+    model: "deepseek/deepseek-v4-flash".to_string(),
+    messages: vec![ChatCompletionRequestMessage::new("user", "Hello!")],
+    ..Default::default()
+}).await?;
+```
+</CodeGroup>
+
+<Steps>
+  <Step title="Choose your model string">
+    Pick a `provider/model` from the [Providers](/concepts/providers) page. Confirm the required environment variable for that provider.
+  </Step>
+  <Step title="Export the API key">
+    Set the environment variable for the new provider, for example:
+    ```bash
+    export DEEPSEEK_API_KEY=your-deepseek-key
+    ```
+  </Step>
+  <Step title="Update the model string in your request">
+    Replace the old `model` value with the new `provider/model` string. No other code changes are required.
+  </Step>
+</Steps>
+
+## What happens with an unknown model string
+
+If you pass a model string that is not in the registry — whether due to a typo, an unsupported model, or a missing provider prefix — warpllm returns an `InvalidModel` error immediately. The error message includes the string you passed so you can spot the mistake quickly.
+
+<Warning>
+`InvalidModel` fires before any network request. You will never be charged for a routing mistake — the call does not reach the provider.
+</Warning>
+
+For the complete list of supported model strings and their context windows, see [Providers](/concepts/providers).

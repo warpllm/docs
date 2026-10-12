@@ -1,0 +1,125 @@
+---
+title: "Run the warpllm HTTP Gateway: Build from Source or Docker"
+sidebarTitle: "Running"
+description: "Build and start the warpllm HTTP gateway with Cargo or Docker, and connect any OpenAI SDK by exporting provider keys and setting one URL."
+---
+
+The warpllm HTTP gateway ships as a Rust crate called `warpllm-server`. You can build and run it directly with Cargo or use the provided Dockerfile to build a minimal container image. Either way, you supply your provider API keys as environment variables — the gateway reads them at startup and uses them to authenticate every upstream request.
+
+<Warning>
+  The HTTP gateway is available on the `main` branch but has **not yet been released as a versioned package**. You must build from source using the steps below.
+</Warning>
+
+<Steps>
+  <Step title="Install prerequisites">
+    Choose the path that matches your workflow:
+
+    - **Cargo:** Install the Rust toolchain version **1.70 or later**. The easiest way is via [rustup](https://rustup.rs).
+    - **Docker:** Install [Docker Engine](https://docs.docker.com/engine/install/) or Docker Desktop. No Rust toolchain is required on your host.
+  </Step>
+
+  <Step title="Clone the repository and build">
+    Clone the warpllm repository, then build the `warpllm-server` binary.
+
+    <CodeGroup>
+      ```bash Cargo
+      git clone https://github.com/warpllm/warpllm.git
+      cd warpllm
+      cargo build -p warpllm-server --release
+      ```
+
+      ```bash Docker
+      git clone https://github.com/warpllm/warpllm.git
+      cd warpllm
+      docker build -t warpllm .
+      ```
+    </CodeGroup>
+
+    The Cargo build places the binary at `./target/release/warpllm-server`.
+  </Step>
+
+  <Step title="Set provider API keys">
+    Export the API key for each provider you intend to route traffic to. The gateway reads these from the environment at request time; you only need the keys for the providers you actually use.
+
+    ```bash
+    export OPENAI_API_KEY=sk-...
+    export DEEPSEEK_API_KEY=sk-...
+    export MOONSHOT_API_KEY=sk-...   # For Kimi
+    export OPENROUTER_API_KEY=sk-...
+    ```
+  </Step>
+
+  <Step title="Start the gateway">
+    Run the binary directly or start the Docker container. The gateway binds to `0.0.0.0:8080` by default.
+
+    <CodeGroup>
+      ```bash Cargo
+      ./target/release/warpllm-server
+
+      # Override port and timeout:
+      ./target/release/warpllm-server --port 8080 --timeout-secs 300
+      ```
+
+      ```bash Docker
+      docker run \
+        -e OPENAI_API_KEY=sk-... \
+        -e DEEPSEEK_API_KEY=sk-... \
+        -p 8080:8080 \
+        warpllm
+      ```
+    </CodeGroup>
+
+    When the server is ready, it logs a line like:
+
+    ```
+    INFO warpllm gateway listening addr=0.0.0.0:8080 version=0.3.1
+    ```
+  </Step>
+
+  <Step title="Verify with a health check">
+    Confirm the gateway is responding before you point any production traffic at it.
+
+    ```bash
+    curl http://localhost:8080/health
+    # {"status":"ok","version":"0.3.1"}
+    ```
+  </Step>
+
+  <Step title="Point your OpenAI SDK at the gateway">
+    Change only the `base_url` in your SDK configuration. The `api_key` field must be a non-empty string to satisfy the SDK's validation, but the gateway ignores whatever value you supply.
+
+    <CodeGroup>
+      ```python Python
+      from openai import OpenAI
+
+      client = OpenAI(
+          base_url="http://localhost:8080/v1",
+          api_key="any-placeholder-value",  # ignored by the gateway
+      )
+      completion = client.chat.completions.create(
+          model="openai/gpt-4o-mini",
+          messages=[{"role": "user", "content": "Hello!"}],
+      )
+      print(completion.choices[0].message.content)
+      ```
+
+      ```ts Node.js
+      import OpenAI from 'openai'
+
+      const client = new OpenAI({
+        baseURL: 'http://localhost:8080/v1',
+        apiKey: 'any-placeholder-value', // ignored by the gateway
+      })
+      const completion = await client.chat.completions.create({
+        model: 'openai/gpt-4o-mini',
+        messages: [{ role: 'user', content: 'Hello!' }],
+      })
+      console.log(completion.choices[0].message.content)
+      ```
+    </CodeGroup>
+
+    <Note>
+      The gateway authenticates upstream with its own provider keys loaded from the environment. The `api_key` you pass to the OpenAI SDK is a placeholder — the gateway accepts it to satisfy SDK validation but never reads it or forwards it to any upstream provider.
+    </Note>
+  </Step>
+</Steps>
